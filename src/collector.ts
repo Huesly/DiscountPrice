@@ -105,6 +105,18 @@ async function collectListing(
         break;
       }
 
+      for (let pass = 0; pass < 3; pass++) {
+        await page.evaluate(async () => {
+          const h = document.body.scrollHeight;
+          for (let y = 0; y <= h; y += 500) {
+            window.scrollTo(0, y);
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        });
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await sleep(3000);
+
       const products = await extractPods(page);
       if (products.length === 0) {
         finished = true;
