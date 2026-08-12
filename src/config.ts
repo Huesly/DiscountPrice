@@ -15,11 +15,6 @@ export const CATEGORIES: CategoryConfig[] = [
     subcategory: 'Electrohogar',
     url: 'https://www.falabella.com.co/falabella-co/category/cat50623/Electrohogar',
   },
-  {
-    name: 'Hogar',
-    subcategory: 'Hogar',
-    url: 'https://www.falabella.com.co/falabella-co/category/cat70057/Hogar',
-  },
 ];
 
 export const SEARCH_TERMS: SearchTermConfig[] = [
@@ -55,6 +50,10 @@ export const SEARCH_TERMS: SearchTermConfig[] = [
 
 export const MAX_PAGES = Number(process.env.MAX_PAGES ?? 10);
 export const PAGE_DELAY_MS = Number(process.env.PAGE_DELAY_MS ?? 3000);
+export const COLLECT_TERMS = (process.env.COLLECT_TERMS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 export const FALABELLA_BASE = process.env.FALABELLA_BASE ?? 'https://www.falabella.com.co';
 

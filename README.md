@@ -40,6 +40,7 @@ npm run init-db
 |---|---|
 | `npm run collector` | Colecta productos de categorías + términos de búsqueda configurados (hasta `MAX_PAGES` páginas cada uno) |
 | `npm run analyze` | Detecta ofertas activas (precio bajo promedio 30 días o bajo precio original) y las guarda en `deals` |
+| `npm run dedupe` | Elimina capturas de precio duplicadas (mismo producto, minuto y precio) |
 | `npm run api` | API REST en `http://127.0.0.1:3000` (endpoints en `/api/*`) |
 | `npm run mcp` | Servidor MCP por stdio (cliente MCP: `search_products`, `get_price_history`, `get_price_stats`, `get_deals`) |
 | `npm run schedule` | Cron que corre collector + analyzer cada 6 h (configurable) |
@@ -64,8 +65,9 @@ Abre `http://localhost:5173`. El dev server de Vite proxya `/api` hacia `127.0.0
 | `DB_USER` | `root` | Usuario |
 | `DB_PASSWORD` | *(vacía)* | Contraseña |
 | `DB_NAME` | `falabella_prices` | Nombre de BD |
-| `MAX_PAGES` | `10` | Máximo de páginas por listado |
+| `MAX_PAGES` | `10` | Máximo de páginas por listado (una página sin SKUs nuevos corta antes) |
 | `PAGE_DELAY_MS` | `3000` | Pausa entre páginas (más 0–800 ms aleatorio) |
+| `COLLECT_TERMS` | *(vacío)* | Correr solo un subconjunto de términos: `COLLECT_TERMS=ollas,platos npm run collector` |
 | `API_HOST` | `127.0.0.1` | IP donde escucha la API (`0.0.0.0` para exponer a la LAN) |
 | `API_PORT` | `3000` | Puerto de la API |
 | `SCHEDULE_CRON` | `0 */6 * * *` | Cron del scheduler |
@@ -88,6 +90,7 @@ Para agregar productos de otra categoría o término: editar `config.ts` y volve
 src/
   collector.ts      # Colector Playwright (categorías + búsquedas)
   analyzer.ts       # Detección de ofertas y deal_score
+  dedupe.ts         # Limpieza de capturas de precio duplicadas
   config.ts         # Categorías, términos y constantes
   scheduler.ts      # Cron collector + analyzer
   parse.ts          # Parseo de precios COP y vendedores

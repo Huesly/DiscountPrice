@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { chromium, type Browser, type Page } from 'playwright';
-import { CATEGORIES, SEARCH_TERMS, MAX_PAGES, PAGE_DELAY_MS, POD_SELECTOR, USER_AGENT, FALABELLA_BASE } from './config.js';
+import { CATEGORIES, SEARCH_TERMS, COLLECT_TERMS, MAX_PAGES, PAGE_DELAY_MS, POD_SELECTOR, USER_AGENT, FALABELLA_BASE } from './config.js';
 import { parseCoPrice, cleanSeller } from './parse.js';
 import { upsertProductWithPrice, getProductCount, getPriceHistoryCount, closePool } from './db/repo.js';
 import type { ScrapedProduct } from './db/repo.js';
@@ -84,6 +84,7 @@ async function collectListing(
 
   const sep = baseUrl.includes('?') ? '&' : '?';
   let total = 0;
+  const pageSeen = new Set<string>();
   try {
     let finished = false;
     for (let pageNo = 1; pageNo <= MAX_PAGES && !finished; pageNo++) {
@@ -110,11 +111,20 @@ async function collectListing(
         break;
       }
 
-      for (const p of products) {
+      const newProducts = products.filter((p) => !pageSeen.has(p.sku));
+      for (const p of products) pageSeen.add(p.sku);
+
+      if (newProducts.length === 0) {
+        console.warn(`  [pág ${pageNo}] ${products.length} pods pero sin SKUs nuevos -> detengo.`);
+        finished = true;
+        break;
+      }
+
+      for (const p of newProducts) {
         await upsertProductWithPrice({ ...p, category, subcategory });
         total++;
       }
-      console.log(`  [pág ${pageNo}] ${products.length} productos guardados (acumulado: ${total})`);
+      console.log(`  [pág ${pageNo}] ${products.length} pods (${newProducts.length} nuevos, acumulado: ${total})`);
 
       await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * 800));
     }
@@ -134,27 +144,42 @@ export async function collectTerm(term: string, subcategory = 'Búsqueda'): Prom
   }
 }
 
+async function collectSearch(browser: Browser, term: string, subcategory: string): Promise<number> {
+  const url = `${FALABELLA_BASE}/falabella-co/search/?Ntt=${encodeURIComponent(term)}`;
+  console.log(`-- Búsqueda "${term}": ${url}`);
+  const n = await collectListing(browser, url, 'Hogar', subcategory);
+  console.log(`   OK: ${n} productos en esta corrida\n`);
+  return n;
+}
+
 async function main() {
   const start = Date.now();
+  const onlyTerms = COLLECT_TERMS;
+
+  const mode = onlyTerms.length
+    ? `Solo términos: ${onlyTerms.join(', ')}`
+    : `Categorías: ${CATEGORIES.length} | Términos: ${SEARCH_TERMS.length}`;
   console.log(`\n=== COLLECTOR FALABELLA ===`);
-  console.log(`Categorías: ${CATEGORIES.length} | Términos de búsqueda: ${SEARCH_TERMS.length} | Máx páginas: ${MAX_PAGES}\n`);
+  console.log(`${mode} | Máx páginas: ${MAX_PAGES}\n`);
 
   const browser: Browser = await chromium.launch({ headless: true });
   let total = 0;
   try {
-    for (const cat of CATEGORIES) {
-      console.log(`-- Categoría ${cat.name} / ${cat.subcategory}: ${cat.url}`);
-      const n = await collectListing(browser, cat.url, cat.name, cat.subcategory);
-      total += n;
-      console.log(`   OK: ${n} productos en esta corrida\n`);
-    }
-
-    for (const s of SEARCH_TERMS) {
-      const url = `${FALABELLA_BASE}/falabella-co/search/?Ntt=${encodeURIComponent(s.term)}`;
-      console.log(`-- Búsqueda "${s.term}": ${url}`);
-      const n = await collectListing(browser, url, 'Hogar', s.subcategory);
-      total += n;
-      console.log(`   OK: ${n} productos en esta corrida\n`);
+    if (onlyTerms.length) {
+      for (const t of onlyTerms) {
+        const cfg = SEARCH_TERMS.find((s) => s.term === t) ?? { term: t, subcategory: 'Búsqueda' };
+        total += await collectSearch(browser, cfg.term, cfg.subcategory);
+      }
+    } else {
+      for (const cat of CATEGORIES) {
+        console.log(`-- Categoría ${cat.name} / ${cat.subcategory}: ${cat.url}`);
+        const n = await collectListing(browser, cat.url, cat.name, cat.subcategory);
+        total += n;
+        console.log(`   OK: ${n} productos en esta corrida\n`);
+      }
+      for (const s of SEARCH_TERMS) {
+        total += await collectSearch(browser, s.term, s.subcategory);
+      }
     }
   } finally {
     await browser.close();

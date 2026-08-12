@@ -8,6 +8,7 @@
     "discover": "tsx src/discovery/probe.ts",
     "collector": "tsx src/collector.ts",
     "analyze": "tsx src/analyzer.ts",
+    "dedupe": "tsx src/dedupe.ts",
     "mcp": "tsx src/mcp/server.ts",
     "init-db": "tsx src/db/init.ts",
     "api": "tsx src/api/server.ts",

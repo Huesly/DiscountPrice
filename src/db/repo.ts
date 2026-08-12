@@ -35,7 +35,6 @@ export async function upsertProductWithPrice(p: ScrapedProduct): Promise<void> {
          name = VALUES(name),
          brand = VALUES(brand),
          category = VALUES(category),
-         subcategory = VALUES(subcategory),
          url = VALUES(url),
          image_url = VALUES(image_url),
          seller = VALUES(seller),
