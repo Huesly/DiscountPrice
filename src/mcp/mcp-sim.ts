@@ -4,7 +4,7 @@ const child = spawn(
   'C:\\Program Files\\nodejs\\node.exe',
   ['--import', 'tsx', 'src/mcp/server.ts'],
   {
-    cwd: 'C:\\Users\\snayl\\Desktop\\Github\\MCPprice',
+    cwd: process.cwd(),
     stdio: ['pipe', 'pipe', 'inherit'],
   }
 );

@@ -22,53 +22,121 @@ async function getPool(): Promise<Pool> {
   return pool;
 }
 
-export async function upsertProductWithPrice(p: ScrapedProduct): Promise<void> {
-  const pool = await getPool();
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    const [result] = await conn.query<ResultSetHeader>(
-      `INSERT INTO products (sku, name, brand, category, subcategory, url, image_url, seller, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-       ON DUPLICATE KEY UPDATE
-         name = VALUES(name),
-         brand = VALUES(brand),
-         category = VALUES(category),
-         url = VALUES(url),
-         image_url = VALUES(image_url),
-         seller = VALUES(seller),
-         active = 1`,
-      [p.sku, p.name, p.brand, p.category, p.subcategory, p.url, p.image_url, p.seller]
-    );
-
-    const productId =
-      result.insertId !== 0 ? result.insertId : await getProductIdBySku(conn, p.sku);
-
-    if (p.price !== null) {
-      await conn.query(
-        `INSERT INTO price_history (product_id, price, original_price, sale_price, stock)
-         VALUES (?, ?, ?, ?, ?)`,
-        [productId, p.price, p.original_price, p.original_price, p.stock]
-      );
-    }
-
-    await conn.commit();
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
+export function productFingerprint(p: Pick<ScrapedProduct, 'price' | 'original_price' | 'stock'>): string {
+  return `${p.price ?? ''}|${p.original_price ?? ''}|${p.stock ?? ''}`;
 }
 
-async function getProductIdBySku(conn: unknown, sku: string): Promise<number> {
-  const [rows] = await (conn as import('mysql2/promise').PoolConnection).query<RowDataPacket[]>(
-    'SELECT id FROM products WHERE sku = ?',
-    [sku]
-  );
-  if (rows.length === 0) throw new Error(`Producto no encontrado por sku ${sku}`);
-  return Number(rows[0].id);
+export async function upsertProductsBatch(items: ScrapedProduct[]): Promise<number> {
+  if (items.length === 0) return 0;
+  const pool = await getPool();
+  let lastErr: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const conn = await pool.getConnection();
+    try {
+      await conn.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await conn.beginTransaction();
+
+      const skus = Array.from(new Set(items.map((i) => i.sku))).sort();
+      const inPlaceholders = skus.map(() => '?').join(', ');
+      const [existingRows] = await conn.query<RowDataPacket[]>(
+        `SELECT sku, id, price_hash FROM products WHERE sku IN (${inPlaceholders}) FOR UPDATE`,
+        skus
+      );
+      const existing = new Map<string, { id: number; price_hash: string | null }>();
+      for (const r of existingRows) {
+        existing.set(r.sku as string, { id: Number(r.id), price_hash: r.price_hash as string | null });
+      }
+
+      const seen = new Set<string>();
+      const all: ScrapedProduct[] = [];
+      const changed: ScrapedProduct[] = [];
+      for (const it of items) {
+        if (seen.has(it.sku)) continue;
+        seen.add(it.sku);
+        all.push(it);
+        const prev = existing.get(it.sku);
+        if (!prev || prev.price_hash !== productFingerprint(it)) {
+          changed.push(it);
+        }
+      }
+
+      if (all.length === 0) {
+        await conn.commit();
+        return 0;
+      }
+
+      const allSorted = all.sort((a, b) => a.sku.localeCompare(b.sku));
+      const changedSorted = changed.sort((a, b) => a.sku.localeCompare(b.sku));
+
+      const values: (string | number | null)[] = [];
+      const rowsSql: string[] = [];
+      for (const it of allSorted) {
+        rowsSql.push('(?, ?, ?, ?, ?, ?, ?, ?, 1, ?)');
+        values.push(it.sku, it.name, it.brand, it.category, it.subcategory, it.url, it.image_url, it.seller, productFingerprint(it));
+      }
+      await conn.query(
+        `INSERT INTO products (sku, name, brand, category, subcategory, url, image_url, seller, active, price_hash)
+         VALUES ${rowsSql.join(', ')}
+         ON DUPLICATE KEY UPDATE
+           name = VALUES(name),
+           brand = VALUES(brand),
+           category = VALUES(category),
+           url = VALUES(url),
+           image_url = VALUES(image_url),
+           seller = VALUES(seller),
+           active = 1,
+           price_hash = VALUES(price_hash)`,
+        values
+      );
+
+      const idBySku = new Map<string, number>();
+      for (const [sku, info] of existing) idBySku.set(sku, info.id);
+      const newSkus = allSorted.filter((i) => !existing.has(i.sku)).map((i) => i.sku);
+      if (newSkus.length > 0) {
+        const ph = newSkus.map(() => '?').join(', ');
+        const [idRows] = await conn.query<RowDataPacket[]>(
+          `SELECT sku, id FROM products WHERE sku IN (${ph})`,
+          newSkus
+        );
+        for (const r of idRows) idBySku.set(r.sku as string, Number(r.id));
+      }
+
+      const histValues: (string | number | boolean | null)[] = [];
+      const histRows: string[] = [];
+      for (const it of changedSorted) {
+        if (it.price === null) continue;
+        const pid = idBySku.get(it.sku);
+        if (pid === undefined) continue;
+        histRows.push('(?, ?, ?, ?, ?)');
+        histValues.push(pid, it.price, it.original_price, it.price, it.stock);
+      }
+      if (histRows.length > 0) {
+        await conn.query(
+          `INSERT INTO price_history (product_id, price, original_price, sale_price, stock)
+           VALUES ${histRows.join(', ')}`,
+          histValues
+        );
+      }
+
+      await conn.commit();
+      return changedSorted.length;
+    } catch (err) {
+      await conn.rollback();
+      const e = err as any;
+      const isRetryable = e?.code === 'ER_LOCK_DEADLOCK' || e?.code === 'ER_LOCK_WAIT_TIMEOUT';
+      if (isRetryable && attempt < 3) {
+        lastErr = err;
+        const jitter = Math.floor(Math.random() * 500) + 200;
+        await new Promise((r) => setTimeout(r, jitter));
+        continue;
+      }
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+  throw lastErr ?? new Error('upsertProductsBatch failed after retries');
 }
 
 export async function getProductCount(): Promise<number> {

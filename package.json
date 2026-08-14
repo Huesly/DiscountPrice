@@ -7,6 +7,8 @@
   "scripts": {
     "discover": "tsx src/discovery/probe.ts",
     "collector": "tsx src/collector.ts",
+    "collector:1": "tsx src/collector.ts --group=1",
+    "collector:2": "tsx src/collector.ts --group=2",
     "analyze": "tsx src/analyzer.ts",
     "dedupe": "tsx src/dedupe.ts",
     "mcp": "tsx src/mcp/server.ts",

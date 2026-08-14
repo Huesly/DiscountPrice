@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Package, Flame, Database, Tags } from 'lucide-react';
 import type { Stats } from '../api';
 
@@ -6,7 +7,7 @@ interface Props {
   total: number | null;
 }
 
-function Kpi({ icon, label, value, sub, accent }: { icon: React.ReactNode; label: string; value: string; sub?: string; accent?: boolean }) {
+function Kpi({ icon, label, value, sub, accent }: { icon: ReactNode; label: string; value: string; sub?: string; accent?: boolean }) {
   return (
     <div className={`card kpi ${accent ? 'kpi-accent' : ''}`}>
       <div className="kpi-icon">{icon}</div>

@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { chromium, type Browser, type Page } from 'playwright';
-import { CATEGORIES, SEARCH_TERMS, COLLECT_TERMS, MAX_PAGES, PAGE_DELAY_MS, POD_SELECTOR, USER_AGENT, FALABELLA_BASE } from './config.js';
+import { CATEGORIES, getSearchTerms, MAX_PAGES, PAGE_DELAY_MS, POD_SELECTOR, USER_AGENT, FALABELLA_BASE } from './config.js';
 import { parseCoPrice, cleanSeller } from './parse.js';
-import { upsertProductWithPrice, getProductCount, getPriceHistoryCount, closePool } from './db/repo.js';
+import { upsertProductsBatch, getProductCount, getPriceHistoryCount, closePool } from './db/repo.js';
 import type { ScrapedProduct } from './db/repo.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -68,6 +68,73 @@ async function extractPods(page: Page): Promise<ScrapedProduct[]> {
   return out;
 }
 
+async function extractFromNextData(page: Page): Promise<ScrapedProduct[]> {
+  const rawResults = await page.evaluate(() => {
+    const el = document.getElementById('__NEXT_DATA__');
+    if (!el) return null;
+    try {
+      const json = JSON.parse(el.textContent || '');
+      return json?.props?.pageProps?.results ?? null;
+    } catch {
+      return null;
+    }
+  });
+  if (!Array.isArray(rawResults)) return [];
+
+  const out: ScrapedProduct[] = [];
+  const seen = new Set<string>();
+  for (const r of rawResults) {
+    const sku = String(r.productId ?? '');
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
+
+    const name = r.displayName ?? null;
+    const brand = r.brand ?? null;
+    const seller = r.sellerName ?? null;
+    const baseUrl = r.url ?? '';
+    const skuId = String(r.skuId ?? '');
+    const url = skuId && !baseUrl.endsWith(skuId) ? `${baseUrl}/${skuId}` : baseUrl;
+    const mediaUrls = Array.isArray(r.mediaUrls) ? r.mediaUrls : [];
+    const image = mediaUrls[0] ?? null;
+
+    let price: number | null = null;
+    let original: number | null = null;
+    if (Array.isArray(r.prices)) {
+      for (const p of r.prices) {
+        const raw = Array.isArray(p.price) ? p.price[0] : p.price;
+        const val = parseCoPrice(raw);
+        if (val === null) continue;
+        if (p.crossed === true) {
+          original = val;
+        } else if (['internetPrice', 'eventPrice', 'cmrPrice'].includes(p.type)) {
+          if (price === null) price = val;
+        } else if (price === null) {
+          price = val;
+        }
+      }
+    }
+    if (price === null && original !== null) {
+      price = original;
+      original = null;
+    }
+
+    out.push({
+      sku,
+      name: name ?? `Producto ${sku}`,
+      brand,
+      category: 'Hogar',
+      subcategory: null,
+      url,
+      image_url: image,
+      seller: cleanSeller(seller),
+      price,
+      original_price: original,
+      stock: price !== null,
+    });
+  }
+  return out;
+}
+
 async function collectListing(
   browser: Browser,
   baseUrl: string,
@@ -100,24 +167,31 @@ async function collectListing(
       try {
         await page.waitForSelector(POD_SELECTOR, { timeout: 20000 });
       } catch {
-        console.warn(`  [pág ${pageNo}] sin pods (fin o bloqueo) -> detengo.`);
-        finished = true;
-        break;
+        console.warn(`  [pág ${pageNo}] sin pods (posible bloqueo) -> reintento con backoff.`);
+        await sleep(15000);
+        try {
+          await page.waitForSelector(POD_SELECTOR, { timeout: 20000 });
+        } catch {
+          console.warn(`  [pág ${pageNo}] sin pods tras reintento -> detengo.`);
+          finished = true;
+          break;
+        }
       }
 
-      for (let pass = 0; pass < 3; pass++) {
+      let products = await extractFromNextData(page);
+      if (products.length === 0) {
+        console.warn(`  [pág ${pageNo}] JSON sin resultados -> fallback DOM con scroll`);
         await page.evaluate(async () => {
           const h = document.body.scrollHeight;
-          for (let y = 0; y <= h; y += 500) {
+          for (let y = 0; y <= h; y += 800) {
             window.scrollTo(0, y);
-            await new Promise((r) => setTimeout(r, 100));
+            await new Promise((r) => setTimeout(r, 80));
           }
         });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await sleep(1000);
+        products = await extractPods(page);
       }
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await sleep(3000);
-
-      const products = await extractPods(page);
       if (products.length === 0) {
         finished = true;
         break;
@@ -132,13 +206,15 @@ async function collectListing(
         break;
       }
 
-      for (const p of newProducts) {
-        await upsertProductWithPrice({ ...p, category, subcategory });
-        total++;
-      }
-      console.log(`  [pág ${pageNo}] ${products.length} pods (${newProducts.length} nuevos, acumulado: ${total})`);
+      const written = await upsertProductsBatch(
+        newProducts.map((p) => ({ ...p, category, subcategory }))
+      );
+      total += written;
+      console.log(
+        `  [pág ${pageNo}] ${products.length} pods (${newProducts.length} nuevos, ${written} escritos, acumulado: ${total})`
+      );
 
-      await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * 800));
+      await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * 1400));
     }
   } finally {
     await ctx.close();
@@ -164,34 +240,34 @@ async function collectSearch(browser: Browser, term: string, subcategory: string
   return n;
 }
 
+function parseGroupArg(): number | undefined {
+  const m = process.argv.find((a) => a.startsWith('--group='));
+  if (m) return Number(m.split('=')[1]);
+  return undefined;
+}
+
 async function main() {
   const start = Date.now();
-  const onlyTerms = COLLECT_TERMS;
+  const group = parseGroupArg();
+  const terms = getSearchTerms(group);
 
-  const mode = onlyTerms.length
-    ? `Solo términos: ${onlyTerms.join(', ')}`
-    : `Categorías: ${CATEGORIES.length} | Términos: ${SEARCH_TERMS.length}`;
+  const mode = group
+    ? `Grupo ${group}: ${terms.length} términos`
+    : `Categorías: ${CATEGORIES.length} | Términos: ${terms.length}`;
   console.log(`\n=== COLLECTOR FALABELLA ===`);
   console.log(`${mode} | Máx páginas: ${MAX_PAGES}\n`);
 
   const browser: Browser = await chromium.launch({ headless: true });
   let total = 0;
   try {
-    if (onlyTerms.length) {
-      for (const t of onlyTerms) {
-        const cfg = SEARCH_TERMS.find((s) => s.term === t) ?? { term: t, subcategory: 'Búsqueda' };
-        total += await collectSearch(browser, cfg.term, cfg.subcategory);
-      }
-    } else {
-      for (const cat of CATEGORIES) {
-        console.log(`-- Categoría ${cat.name} / ${cat.subcategory}: ${cat.url}`);
-        const n = await collectListing(browser, cat.url, cat.name, cat.subcategory);
-        total += n;
-        console.log(`   OK: ${n} productos en esta corrida\n`);
-      }
-      for (const s of SEARCH_TERMS) {
-        total += await collectSearch(browser, s.term, s.subcategory);
-      }
+    for (const s of terms) {
+      total += await collectSearch(browser, s.term, s.subcategory);
+    }
+    for (const cat of CATEGORIES) {
+      console.log(`-- Categoría ${cat.name} / ${cat.subcategory}: ${cat.url}`);
+      const n = await collectListing(browser, cat.url, cat.name, cat.subcategory);
+      total += n;
+      console.log(`   OK: ${n} productos en esta corrida\n`);
     }
   } finally {
     await browser.close();

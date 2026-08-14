@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS products (
   image_url TEXT DEFAULT NULL,
   seller VARCHAR(200) DEFAULT NULL,
   active TINYINT(1) NOT NULL DEFAULT 1,
+  price_hash VARCHAR(64) DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_products_category (category),
@@ -45,3 +46,6 @@ CREATE TABLE IF NOT EXISTS deals (
   CONSTRAINT fk_deal_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
   KEY idx_deals_status (status, deal_score)
 ) ENGINE=InnoDB;
+
+ALTER TABLE products ADD COLUMN IF NOT EXISTS price_hash VARCHAR(64) DEFAULT NULL;
+-- Migración para BD existentes (idempotente)

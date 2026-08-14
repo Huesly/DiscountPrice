@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { chromium } from 'playwright';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const BASE = process.env.FALABELLA_BASE ?? 'https://www.falabella.com.co';
@@ -111,6 +111,7 @@ async function main() {
   console.log('Contador en body:', m ? m[0] : '(no encontrado)');
 
   const html = await page.content();
+  mkdirSync(join(process.cwd(), 'tmp'), { recursive: true });
   writeFileSync(join(process.cwd(), 'tmp', 'category.html'), html);
   console.log('\nHTML guardado en tmp/category.html');
 

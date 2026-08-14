@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { chromium } from 'playwright';
 import { join } from 'node:path';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const UA =
@@ -73,6 +73,7 @@ async function main() {
     .catch(() => []);
   pagControls.forEach((c) => console.log(JSON.stringify(c)));
 
+  mkdirSync(join(process.cwd(), 'tmp'), { recursive: true });
   writeFileSync(join(process.cwd(), 'tmp', 'listing_cat50623.html'), await page.content());
   console.log('\nHTML guardado.');
 

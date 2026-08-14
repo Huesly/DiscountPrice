@@ -1,0 +1,39 @@
+# Términos de búsqueda para el collector de Falabella Colombia
+# Formato: un término por línea. Líneas que empiezan con # son comentarios.
+# Usa "# grupo N" para separar grupos (ej. para 2 consolas).
+# Prioridad: COLLECT_TERMS env var > este archivo.
+
+# grupo 1
+aspiradora
+licuadora
+microondas
+cafetera
+lavadora
+silla
+comedor
+escritorio
+colchon
+closet
+armario
+tapete
+lampara
+mesita
+mueble tv
+
+# grupo 2
+estante
+sofa
+cama
+tocador
+comoda
+ollas
+platos
+vajilla
+sarten
+cacerola
+cubiertos
+tazas
+vasos
+lavadero
+lavaplatos
+maquina afeitar

@@ -48,7 +48,8 @@ async function openListing(url: string, label: string) {
     podInfo?.path.forEach((p, i) => console.log(`    [${i}] ${p}`));
 
     const html = await page.content();
-    const { writeFileSync } = await import('node:fs');
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    mkdirSync(join(process.cwd(), 'tmp'), { recursive: true });
     writeFileSync(join(process.cwd(), 'tmp', `listing_${label.replace(/\W+/g, '_')}.html`), html);
   }
 

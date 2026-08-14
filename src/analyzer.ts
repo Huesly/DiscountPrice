@@ -54,7 +54,7 @@ async function main() {
     if (!isDeal) continue;
 
     const med = median(windowPrices);
-    const distanceToMin = minHist !== null ? (p.price - minHist) / minHist : -1;
+    const distanceToMin = minHist !== null && minHist > 0 ? (p.price - minHist) / minHist : -1;
     const scorePct = Math.max(discountVsAvg, discountVsOriginal);
     const dealScore = round2(Math.max(0, scorePct) * 70 + Math.max(0, -distanceToMin) * 30);
     const trigger = dealByOriginal && !dealByAvg ? 'vs tachado' : 'vs avg30';
