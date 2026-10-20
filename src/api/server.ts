@@ -10,6 +10,8 @@ import {
   getActiveDeals,
   getGlobalStats,
   getBrands,
+  listGroups,
+  getGroupMembers,
   closePool,
 } from '../db/repo.js';
 import type { ProductFilters } from '../db/repo.js';
@@ -23,8 +25,9 @@ app.get('/api/stats', async () => {
 });
 
 app.get('/api/products', async (req) => {
-  const { query = '', brands = '', brand = '', skus = '', minPrice, maxPrice, dealOnly, sort, limit = 24, offset = 0 } = req.query as {
+  const { query = '', store = '', brands = '', brand = '', skus = '', minPrice, maxPrice, dealOnly, sort, limit = 24, offset = 0 } = req.query as {
     query?: string;
+    store?: string;
     brand?: string;
     brands?: string;
     skus?: string;
@@ -45,6 +48,7 @@ app.get('/api/products', async (req) => {
     .filter(Boolean);
   const filters: ProductFilters = {
     query: String(query) || undefined,
+    store: String(store).trim() || undefined,
     brands: brandList.length ? brandList : undefined,
     skus: skuList.length ? skuList : undefined,
     minPrice: minPrice !== undefined && minPrice !== '' ? Number(minPrice) : undefined,
@@ -98,6 +102,28 @@ app.post('/api/collect', async (req, reply) => {
 app.get('/api/deals', async (req) => {
   const { limit = 50 } = req.query as { limit?: number };
   return getActiveDeals(Number(limit));
+});
+
+app.get('/api/groups', async (req) => {
+  const { query = '', limit = 20 } = req.query as { query?: string; limit?: number };
+  return listGroups(query ? String(query) : undefined, Number(limit));
+});
+
+app.get('/api/groups/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const gid = Number(id);
+  if (!Number.isInteger(gid) || gid <= 0) {
+    return reply.code(400).send({ error: 'ID inválido' });
+  }
+  const members = await getGroupMembers(gid);
+  if (members.length === 0) {
+    return reply.code(404).send({ error: 'Grupo no encontrado' });
+  }
+  const minPrice = members.reduce(
+    (acc, m) => (m.price !== null && (acc === null || m.price < acc) ? m.price : acc),
+    null as number | null
+  );
+  return { id: gid, members, min_price: minPrice };
 });
 
 const host = process.env.API_HOST ?? '127.0.0.1';

@@ -1,6 +1,6 @@
 import { Heart, ExternalLink } from 'lucide-react';
 import type { ProductRow } from '../api';
-import { fmt, discountPct } from '../api';
+import { fmt, discountPct, STORE_LABELS } from '../api';
 import ProductImage from './ProductImage';
 
 interface Props {
@@ -23,6 +23,7 @@ export default function ProductCard({ p, isFav, onToggleFav, onOpen }: Props) {
           size={40}
         />
         {d !== null && d > 0 && <span className="chip badge-off pc-badge">-{d}%</span>}
+        <span className={`store-badge store-${p.store} pc-store`}>{STORE_LABELS[p.store] ?? p.store}</span>
         <button
           className={`pc-fav ${isFav ? 'is-fav' : ''}`}
           aria-label={isFav ? 'Quitar de favoritos' : 'Agregar a favoritos'}
@@ -52,7 +53,7 @@ export default function ProductCard({ p, isFav, onToggleFav, onOpen }: Props) {
         href={p.url}
         target="_blank"
         rel="noreferrer"
-        aria-label="Ver en Falabella"
+        aria-label={`Ver en ${STORE_LABELS[p.store] ?? p.store}`}
         onClick={(e) => e.stopPropagation()}
       >
         <ExternalLink size={13} />

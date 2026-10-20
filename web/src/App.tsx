@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import type { Deal, ProductFilters, ProductRow, SortKey, Stats } from './api';
 import { api } from './api';
 import { useUrlFilters, type UrlFilters } from './hooks/useUrlFilters';
@@ -13,6 +13,7 @@ import ProductGrid from './components/ProductGrid';
 import Pagination from './components/Pagination';
 import DetailSheet from './components/DetailSheet';
 import ErrorBanner from './components/ErrorBanner';
+import ComparePage from './components/ComparePage';
 
 const PAGE_SIZE = 24;
 
@@ -87,7 +88,6 @@ function Shell() {
 
   return (
     <>
-      <Header />
       <div className="container main">
         {apiError && (
           <ErrorBanner
@@ -127,6 +127,7 @@ function Shell() {
 function buildApiFilters(filters: UrlFilters, query: string, favorites: string[]): ProductFilters {
   const f: ProductFilters = {};
   if (query.trim()) f.query = query.trim();
+  if (filters.store) f.store = filters.store;
   if (filters.brands.length) f.brands = filters.brands;
   if (filters.minPrice !== undefined) f.minPrice = filters.minPrice;
   if (filters.maxPrice !== undefined) f.maxPrice = filters.maxPrice;
@@ -139,7 +140,11 @@ function buildApiFilters(filters: UrlFilters, query: string, favorites: string[]
 export default function App() {
   return (
     <BrowserRouter>
-      <Shell />
+      <Header />
+      <Routes>
+        <Route path="/" element={<Shell />} />
+        <Route path="/comparar" element={<ComparePage />} />
+      </Routes>
     </BrowserRouter>
   );
 }

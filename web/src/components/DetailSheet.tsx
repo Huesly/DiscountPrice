@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, Heart, X } from 'lucide-react';
 import type { HistoryPoint, PriceStats, ProductRow } from '../api';
-import { api, fmt, discountPct } from '../api';
+import { api, fmt, discountPct, STORE_LABELS } from '../api';
 import { useFavorites } from '../hooks/useFavorites';
 import PriceChart from './PriceChart';
 import ProductImage from './ProductImage';
@@ -110,6 +110,9 @@ export default function DetailSheet({ sku, onClose }: Props) {
                     </>
                   )}
                 </div>
+                <div className="pc-store-row">
+                  <span className={`store-badge store-${p.store}`}>{STORE_LABELS[p.store] ?? p.store}</span>
+                </div>
               </div>
             </div>
 
@@ -138,7 +141,7 @@ export default function DetailSheet({ sku, onClose }: Props) {
                 {fav ? 'En favoritos' : 'Favorito'}
               </button>
               <a className="btn btn-primary" href={p.url} target="_blank" rel="noreferrer">
-                <ExternalLink size={15} /> Ver en Falabella
+                <ExternalLink size={15} /> Ver en {STORE_LABELS[p.store] ?? p.store}
               </a>
             </div>
           </>

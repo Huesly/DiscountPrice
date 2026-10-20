@@ -26,8 +26,15 @@ export function productFingerprint(p: Pick<ScrapedProduct, 'price' | 'original_p
   return `${p.price ?? ''}|${p.original_price ?? ''}|${p.stock ?? ''}`;
 }
 
-export async function upsertProductsBatch(items: ScrapedProduct[]): Promise<number> {
+export interface UpsertOptions {
+  store?: string;
+  city?: string | null;
+}
+
+export async function upsertProductsBatch(items: ScrapedProduct[], opts: UpsertOptions = {}): Promise<number> {
   if (items.length === 0) return 0;
+  const store = opts.store ?? 'falabella';
+  const city = opts.city ?? null;
   const pool = await getPool();
   let lastErr: unknown;
 
@@ -40,8 +47,8 @@ export async function upsertProductsBatch(items: ScrapedProduct[]): Promise<numb
       const skus = Array.from(new Set(items.map((i) => i.sku))).sort();
       const inPlaceholders = skus.map(() => '?').join(', ');
       const [existingRows] = await conn.query<RowDataPacket[]>(
-        `SELECT sku, id, price_hash FROM products WHERE sku IN (${inPlaceholders}) FOR UPDATE`,
-        skus
+        `SELECT sku, id, price_hash FROM products WHERE store = ? AND sku IN (${inPlaceholders}) FOR UPDATE`,
+        [store, ...skus]
       );
       const existing = new Map<string, { id: number; price_hash: string | null }>();
       for (const r of existingRows) {
@@ -72,11 +79,24 @@ export async function upsertProductsBatch(items: ScrapedProduct[]): Promise<numb
       const values: (string | number | null)[] = [];
       const rowsSql: string[] = [];
       for (const it of allSorted) {
-        rowsSql.push('(?, ?, ?, ?, ?, ?, ?, ?, 1, ?)');
-        values.push(it.sku, it.name, it.brand, it.category, it.subcategory, it.url, it.image_url, it.seller, productFingerprint(it));
+        rowsSql.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NOW())');
+        values.push(
+          store,
+          it.sku,
+          it.name,
+          it.brand,
+          it.category,
+          it.subcategory,
+          it.url,
+          it.image_url,
+          it.seller,
+          productFingerprint(it),
+          it.price,
+          it.original_price
+        );
       }
       await conn.query(
-        `INSERT INTO products (sku, name, brand, category, subcategory, url, image_url, seller, active, price_hash)
+        `INSERT INTO products (store, sku, name, brand, category, subcategory, url, image_url, seller, active, price_hash, current_price, original_price, last_captured_at)
          VALUES ${rowsSql.join(', ')}
          ON DUPLICATE KEY UPDATE
            name = VALUES(name),
@@ -86,7 +106,10 @@ export async function upsertProductsBatch(items: ScrapedProduct[]): Promise<numb
            image_url = VALUES(image_url),
            seller = VALUES(seller),
            active = 1,
-           price_hash = VALUES(price_hash)`,
+           price_hash = VALUES(price_hash),
+           current_price = VALUES(current_price),
+           original_price = VALUES(original_price),
+           last_captured_at = NOW()`,
         values
       );
 
@@ -96,8 +119,8 @@ export async function upsertProductsBatch(items: ScrapedProduct[]): Promise<numb
       if (newSkus.length > 0) {
         const ph = newSkus.map(() => '?').join(', ');
         const [idRows] = await conn.query<RowDataPacket[]>(
-          `SELECT sku, id FROM products WHERE sku IN (${ph})`,
-          newSkus
+          `SELECT sku, id FROM products WHERE store = ? AND sku IN (${ph})`,
+          [store, ...newSkus]
         );
         for (const r of idRows) idBySku.set(r.sku as string, Number(r.id));
       }
@@ -108,12 +131,12 @@ export async function upsertProductsBatch(items: ScrapedProduct[]): Promise<numb
         if (it.price === null) continue;
         const pid = idBySku.get(it.sku);
         if (pid === undefined) continue;
-        histRows.push('(?, ?, ?, ?, ?)');
-        histValues.push(pid, it.price, it.original_price, it.price, it.stock);
+        histRows.push('(?, ?, ?, ?, ?, ?)');
+        histValues.push(pid, it.price, it.original_price, it.price, it.stock, city);
       }
       if (histRows.length > 0) {
         await conn.query(
-          `INSERT INTO price_history (product_id, price, original_price, sale_price, stock)
+          `INSERT INTO price_history (product_id, price, original_price, sale_price, stock, city)
            VALUES ${histRows.join(', ')}`,
           histValues
         );
@@ -169,13 +192,10 @@ export interface ProductWithLatestPrice {
 
 export async function getProductsWithLatestPrice(): Promise<ProductWithLatestPrice[]> {
   const [rows] = await (await getPool()).query<RowDataPacket[]>(
-    `SELECT p.id, p.sku, p.name, p.url, p.category, ph.price, ph.original_price, ph.captured_at
+    `SELECT p.id, p.sku, p.name, p.url, p.category, p.current_price AS price, p.original_price, p.last_captured_at AS captured_at
      FROM products p
-     JOIN price_history ph ON ph.id = (
-       SELECT MAX(ph2.id) FROM price_history ph2 WHERE ph2.product_id = p.id
-     )
-     WHERE p.active = 1
-     ORDER BY ph.price DESC`
+     WHERE p.active = 1 AND p.current_price IS NOT NULL
+     ORDER BY p.current_price DESC`
   );
   return rows.map((r) => ({
     id: Number(r.id),
@@ -241,6 +261,7 @@ export async function insertDeal(deal: DealRecord): Promise<void> {
 
 export interface ProductRow {
   id: number;
+  store: string;
   sku: string;
   name: string;
   brand: string | null;
@@ -253,18 +274,15 @@ export interface ProductRow {
   captured_at: string | null;
 }
 
-const PRODUCT_SELECT = `p.id, p.sku, p.name, p.brand, p.category, p.seller, p.url, p.image_url,
-            ph.price, ph.original_price, ph.captured_at`;
+const PRODUCT_SELECT = `p.id, p.store, p.sku, p.name, p.brand, p.category, p.seller, p.url, p.image_url,
+            p.current_price AS price, p.original_price, p.last_captured_at AS captured_at`;
 
 export async function searchProducts(query: string, limit = 20): Promise<ProductRow[]> {
   const [rows] = await (await getPool()).query<RowDataPacket[]>(
     `SELECT ${PRODUCT_SELECT}
      FROM products p
-     LEFT JOIN price_history ph ON ph.id = (
-       SELECT MAX(ph2.id) FROM price_history ph2 WHERE ph2.product_id = p.id
-     )
      WHERE p.active = 1 AND (p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ?)
-     ORDER BY ph.price DESC
+     ORDER BY p.current_price DESC
      LIMIT ?`,
     [`%${query}%`, `%${query}%`, `%${query}%`, limit]
   );
@@ -275,9 +293,6 @@ export async function getProductBySku(sku: string): Promise<ProductRow | null> {
   const [rows] = await (await getPool()).query<RowDataPacket[]>(
     `SELECT ${PRODUCT_SELECT}
      FROM products p
-     LEFT JOIN price_history ph ON ph.id = (
-       SELECT MAX(ph2.id) FROM price_history ph2 WHERE ph2.product_id = p.id
-     )
      WHERE p.sku = ? AND p.active = 1 LIMIT 1`,
     [sku]
   );
@@ -287,6 +302,7 @@ export async function getProductBySku(sku: string): Promise<ProductRow | null> {
 function mapProductRow(r: RowDataPacket): ProductRow {
   return {
     id: Number(r.id),
+    store: r.store as string,
     sku: r.sku as string,
     name: r.name as string,
     brand: (r.brand as string | null) ?? null,
@@ -353,8 +369,7 @@ export async function getPriceStats(sku: string): Promise<PriceStats> {
   };
 }
 
-export interface ActiveDealRow {
-  sku: string;
+export interface ActiveDealRow {  sku: string;
   name: string;
   url: string;
   image_url: string | null;
@@ -369,6 +384,7 @@ export interface ActiveDealRow {
 
 export interface ProductFilters {
   query?: string;
+  store?: string;
   brand?: string;
   brands?: string[];
   skus?: string[];
@@ -379,11 +395,11 @@ export interface ProductFilters {
 }
 
 const SORT_MAP: Record<NonNullable<ProductFilters['sort']>, string> = {
-  default: 'ph.price DESC',
-  price_asc: 'ph.price ASC',
-  price_desc: 'ph.price DESC',
+  default: 'p.current_price DESC',
+  price_asc: 'p.current_price ASC',
+  price_desc: 'p.current_price DESC',
   discount:
-    '(ph.price / NULLIF(ph.original_price, 0)) IS NULL, (ph.price / NULLIF(ph.original_price, 0)) ASC',
+    '(p.current_price / NULLIF(p.original_price, 0)) IS NULL, (p.current_price / NULLIF(p.original_price, 0)) ASC',
   newest: 'p.created_at DESC',
   deal_score:
     '(SELECT MAX(dd.deal_score) FROM deals dd WHERE dd.product_id = p.id AND dd.status = "active") DESC',
@@ -392,6 +408,10 @@ const SORT_MAP: Record<NonNullable<ProductFilters['sort']>, string> = {
 function buildProductWhere(f: ProductFilters): { sql: string; params: (string | number)[] } {
   const clauses: string[] = [];
   const params: (string | number)[] = [];
+  if (f.store) {
+    clauses.push('p.store = ?');
+    params.push(f.store);
+  }
   if (f.query) {
     clauses.push('(p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ?)');
     params.push(`%${f.query}%`, `%${f.query}%`, `%${f.query}%`);
@@ -409,11 +429,11 @@ function buildProductWhere(f: ProductFilters): { sql: string; params: (string | 
     params.push(...f.skus);
   }
   if (f.minPrice !== undefined) {
-    clauses.push('ph.price >= ?');
+    clauses.push('p.current_price >= ?');
     params.push(f.minPrice);
   }
   if (f.maxPrice !== undefined) {
-    clauses.push('ph.price <= ?');
+    clauses.push('p.current_price <= ?');
     params.push(f.maxPrice);
   }
   if (f.dealOnly) {
@@ -438,9 +458,6 @@ export async function listProducts(
   const [rows] = await (await getPool()).query<RowDataPacket[]>(
     `SELECT ${PRODUCT_SELECT}
      FROM products p
-     LEFT JOIN price_history ph ON ph.id = (
-       SELECT MAX(ph2.id) FROM price_history ph2 WHERE ph2.product_id = p.id
-     )
      WHERE p.active = 1 ${sql}
      ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`,
@@ -453,9 +470,6 @@ export async function countProducts(f: ProductFilters): Promise<number> {
   const { sql, params } = buildProductWhere(f);
   const [rows] = await (await getPool()).query<RowDataPacket[]>(
     `SELECT COUNT(*) AS c FROM products p
-     LEFT JOIN price_history ph ON ph.id = (
-       SELECT MAX(ph2.id) FROM price_history ph2 WHERE ph2.product_id = p.id
-     )
      WHERE p.active = 1 ${sql}`,
     params
   );
@@ -518,4 +532,144 @@ export async function getActiveDeals(limit = 20): Promise<ActiveDealRow[]> {
     deal_score: r.deal_score === null ? null : Number(r.deal_score),
     detected_at: r.detected_at as string,
   }));
+}
+
+export interface GroupableProduct {
+  id: number;
+  store: string;
+  sku: string;
+  name: string;
+  brand: string | null;
+  price: number | null;
+  original_price: number | null;
+}
+
+export async function getGroupableProducts(): Promise<GroupableProduct[]> {
+  const [rows] = await (await getPool()).query<RowDataPacket[]>(
+    `SELECT p.id, p.store, p.sku, p.name, p.brand, p.current_price AS price, p.original_price
+     FROM products p
+     WHERE p.active = 1 AND p.current_price IS NOT NULL`
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    store: r.store as string,
+    sku: r.sku as string,
+    name: r.name as string,
+    brand: (r.brand as string | null) ?? null,
+    price: r.price === null ? null : Number(r.price),
+    original_price: r.original_price === null ? null : Number(r.original_price),
+  }));
+}
+
+export interface GroupRow {
+  id: number;
+  name: string;
+  brand: string | null;
+  members: number;
+}
+
+export async function listGroups(query?: string, limit = 20): Promise<GroupRow[]> {
+  const [rows] = await (await getPool()).query<RowDataPacket[]>(
+    `SELECT g.id, g.name, g.brand, COUNT(pm.product_id) AS members
+     FROM product_groups g
+     JOIN product_group_members pm ON pm.group_id = g.id
+     ${query ? 'WHERE g.name LIKE ?' : ''}
+     GROUP BY g.id, g.name, g.brand
+     ORDER BY members DESC
+     LIMIT ?`,
+    query ? [`%${query}%`, limit] : [limit]
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    name: r.name as string,
+    brand: (r.brand as string | null) ?? null,
+    members: Number(r.members),
+  }));
+}
+
+export interface GroupMemberRow {
+  store: string;
+  sku: string;
+  name: string;
+  url: string;
+  image_url: string | null;
+  brand: string | null;
+  price: number | null;
+  original_price: number | null;
+  city: string | null;
+}
+
+export async function getGroupMembers(groupId: number): Promise<GroupMemberRow[]> {
+  const [rows] = await (await getPool()).query<RowDataPacket[]>(
+    `SELECT p.store, p.sku, p.name, p.url, p.image_url, p.brand, ph.price, ph.original_price, ph.city
+     FROM product_group_members pm
+     JOIN products p ON p.id = pm.product_id
+     JOIN price_history ph ON ph.id = (
+       SELECT MAX(ph2.id) FROM price_history ph2 WHERE ph2.product_id = p.id
+     )
+     WHERE pm.group_id = ?
+     ORDER BY ph.price ASC`,
+    [groupId]
+  );
+  return rows.map((r) => ({
+    store: r.store as string,
+    sku: r.sku as string,
+    name: r.name as string,
+    url: r.url as string,
+    image_url: (r.image_url as string | null) ?? null,
+    brand: (r.brand as string | null) ?? null,
+    price: r.price === null ? null : Number(r.price),
+    original_price: r.original_price === null ? null : Number(r.original_price),
+    city: (r.city as string | null) ?? null,
+  }));
+}
+
+export async function createGroup(name: string, brand: string | null, productIds: number[]): Promise<number> {
+  const pool = await getPool();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [res] = await conn.query<ResultSetHeader>(
+      'INSERT INTO product_groups (name, brand) VALUES (?, ?)',
+      [name, brand]
+    );
+    const groupId = res.insertId;
+    if (productIds.length > 0) {
+      const ph = productIds.map(() => '?').join(', ');
+      await conn.query(
+        `INSERT IGNORE INTO product_group_members (group_id, product_id) SELECT ?, id FROM products WHERE id IN (${ph})`,
+        [groupId, ...productIds]
+      );
+    }
+    await conn.commit();
+    return Number(groupId);
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+export async function clearGroups(): Promise<void> {
+  await (await getPool()).query('DELETE FROM product_groups');
+}
+
+export async function findGroupByProduct(productId: number): Promise<number | null> {
+  const [rows] = await (await getPool()).query<RowDataPacket[]>(
+    `SELECT group_id FROM product_group_members WHERE product_id = ? LIMIT 1`,
+    [productId]
+  );
+  return rows.length ? Number(rows[0].group_id) : null;
+}
+
+export async function findGroupBySku(store: string, sku: string): Promise<number | null> {
+  const [rows] = await (await getPool()).query<RowDataPacket[]>(
+    `SELECT pm.group_id
+     FROM product_group_members pm
+     JOIN products p ON p.id = pm.product_id
+     WHERE p.store = ? AND p.sku = ? LIMIT 1`,
+    [store, sku]
+  );
+  return rows.length ? Number(rows[0].group_id) : null;
 }

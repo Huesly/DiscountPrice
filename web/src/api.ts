@@ -7,6 +7,7 @@ export interface Stats {
 
 export interface ProductRow {
   id: number;
+  store: string;
   sku: string;
   name: string;
   brand: string | null;
@@ -53,6 +54,7 @@ export type SortKey = 'default' | 'price_asc' | 'price_desc' | 'discount' | 'new
 
 export interface ProductFilters {
   query?: string;
+  store?: string;
   brands?: string[];
   skus?: string[];
   minPrice?: number;
@@ -60,6 +62,31 @@ export interface ProductFilters {
   dealOnly?: boolean;
   favOnly?: boolean;
   sort?: SortKey;
+}
+
+export interface GroupRow {
+  id: number;
+  name: string;
+  brand: string | null;
+  members: number;
+}
+
+export interface GroupMember {
+  store: string;
+  sku: string;
+  name: string;
+  url: string;
+  image_url: string | null;
+  brand: string | null;
+  price: number | null;
+  original_price: number | null;
+  city: string | null;
+}
+
+export interface GroupDetail {
+  id: number;
+  members: GroupMember[];
+  min_price: number | null;
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -79,6 +106,7 @@ export const api = {
   products: (f: ProductFilters = {}, limit = 24, offset = 0) => {
     const q = new URLSearchParams();
     if (f.query) q.set('query', f.query);
+    if (f.store) q.set('store', f.store);
     if (f.brands && f.brands.length) q.set('brands', f.brands.join(','));
     if (f.skus && f.skus.length) q.set('skus', f.skus.join(','));
     if (f.minPrice !== undefined) q.set('minPrice', String(f.minPrice));
@@ -95,6 +123,9 @@ export const api = {
   statsFor: (sku: string) => get<{ product: ProductRow | null; stats: PriceStats }>(`/api/products/${sku}/stats`),
   deals: () => get<Deal[]>('/api/deals?limit=12'),
   collect: (term: string) => post<{ term: string; added: number }>(`/api/collect?term=${encodeURIComponent(term)}`),
+  groups: (query = '', limit = 20) =>
+    get<GroupRow[]>(`/api/groups?query=${encodeURIComponent(query)}&limit=${limit}`),
+  group: (id: number) => get<GroupDetail>(`/api/groups/${id}`),
 };
 
 export function fmt(n: number | null | undefined): string {
@@ -119,4 +150,10 @@ export const SORT_LABELS: Record<SortKey, string> = {
   discount: 'Mayor descuento',
   newest: 'Más recientes',
   deal_score: 'Mejor oferta',
+};
+
+export const STORE_LABELS: Record<string, string> = {
+  falabella: 'Falabella',
+  exito: 'Éxito',
+  homecenter: 'Homecenter',
 };

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 
 export interface UrlFilters {
   query: string;
+  store: string;
   brands: string[];
   minPrice: number | undefined;
   maxPrice: number | undefined;
@@ -23,6 +24,7 @@ export function useUrlFilters() {
     const page = Number(params.get('page')) || 1;
     return {
       query: params.get('q') ?? '',
+      store: params.get('store') ?? '',
       brands,
       minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
       maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
@@ -38,6 +40,7 @@ export function useUrlFilters() {
       const next = { ...filters, ...patch };
       const q = new URLSearchParams();
       if (next.query.trim()) q.set('q', next.query.trim());
+      if (next.store) q.set('store', next.store);
       if (next.brands.length) q.set('brands', next.brands.join(','));
       if (next.minPrice !== undefined) q.set('min', String(next.minPrice));
       if (next.maxPrice !== undefined) q.set('max', String(next.maxPrice));

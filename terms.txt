@@ -37,3 +37,9 @@ vasos
 lavadero
 lavaplatos
 maquina afeitar
+
+# grupo 3
+ups
+sistema ups
+regulador
+bateria ups

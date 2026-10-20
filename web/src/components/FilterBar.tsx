@@ -4,6 +4,13 @@ import type { SortKey } from '../api';
 import { SORT_LABELS } from '../api';
 import type { UrlFilters } from '../hooks/useUrlFilters';
 
+const STORE_OPTIONS = [
+  { value: '', label: 'Todas' },
+  { value: 'falabella', label: 'Falabella' },
+  { value: 'exito', label: 'Éxito' },
+  { value: 'homecenter', label: 'Homecenter' },
+];
+
 interface Props {
   filters: UrlFilters;
   brands: string[];
@@ -37,6 +44,7 @@ export default function FilterBar({ filters, brands, onChange, onReset, favCount
   const activeCount = useMemo(() => {
     let n = 0;
     if (filters.query.trim()) n++;
+    if (filters.store) n++;
     if (filters.brands.length) n += filters.brands.length;
     if (filters.minPrice !== undefined || filters.maxPrice !== undefined) n++;
     if (filters.dealOnly) n++;
@@ -92,6 +100,18 @@ export default function FilterBar({ filters, brands, onChange, onReset, favCount
 
       {open && (
         <div className="filter-panel">
+          <div className="fp-group">
+            <label>Tienda</label>
+            <select
+              value={filters.store}
+              onChange={(e) => onChange({ store: e.target.value, page: 1 })}
+            >
+              {STORE_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="fp-group">
             <label>Marca</label>
             <select

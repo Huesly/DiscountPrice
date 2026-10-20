@@ -1,158 +1,116 @@
 import 'dotenv/config';
 import { chromium, type Browser, type Page } from 'playwright';
-import { CATEGORIES, getSearchTerms, MAX_PAGES, PAGE_DELAY_MS, POD_SELECTOR, USER_AGENT, FALABELLA_BASE } from './config.js';
-import { parseCoPrice, cleanSeller } from './parse.js';
+import { CATEGORIES, getSearchTerms, MAX_PAGES, PAGE_DELAY_MS, USER_AGENT } from './config.js';
+import { falabellaAdapter } from './stores/falabella.js';
+import { exitoAdapter } from './stores/exito.js';
+import { homecenterAdapter } from './stores/homecenter.js';
+import type { StoreAdapter } from './stores/types.js';
 import { upsertProductsBatch, getProductCount, getPriceHistoryCount, closePool } from './db/repo.js';
 import type { ScrapedProduct } from './db/repo.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function extractPods(page: Page): Promise<ScrapedProduct[]> {
-  const pods = await page.locator(POD_SELECTOR).evaluateAll((els) =>
-    els.map((el) => {
-      const a = el as HTMLAnchorElement;
-      const dataKey = a.getAttribute('data-key') ?? '';
-      const brand = (a.querySelector('.pod-title') as HTMLElement | null)?.innerText.trim() ?? null;
-      const name =
-        (a.querySelector('.pod-subTitle') as HTMLElement | null)?.innerText.trim() ??
-        a.getAttribute('aria-label') ??
-        null;
-      const sellerRaw = (a.querySelector('.pod-sellerText') as HTMLElement | null)?.innerText ?? null;
-      const image = (a.querySelector('img') as HTMLImageElement | null)?.src ?? null;
-      const liPrices = Array.from(a.querySelectorAll('li[class*="prices-"]'));
-      let currentPrice: string | null = null;
-      let normalPrice: string | null = null;
-      for (const li of liPrices) {
-        currentPrice =
-          currentPrice ??
-          li.getAttribute('data-event-price') ??
-          li.getAttribute('data-internet-price') ??
-          li.getAttribute('data-cmr-price');
-        normalPrice = normalPrice ?? li.getAttribute('data-normal-price');
-      }
-      return {
-        dataKey,
-        name,
-        brand,
-        sellerRaw,
-        image,
-        eventPrice: currentPrice,
-        normalPrice,
-        href: a.href,
-      };
-    })
-  );
+const ADAPTERS: Record<string, StoreAdapter> = {
+  falabella: falabellaAdapter,
+  exito: exitoAdapter,
+  homecenter: homecenterAdapter,
+};
 
-  const out: ScrapedProduct[] = [];
-  const seen = new Set<string>();
-  for (const p of pods) {
-    if (!p.dataKey || seen.has(p.dataKey)) continue;
-    seen.add(p.dataKey);
-    const url = p.href.startsWith('http') ? p.href.split(/[?#]/)[0] : FALABELLA_BASE + p.href.split(/[?#]/)[0];
-    const price = parseCoPrice(p.eventPrice);
-    const original = p.normalPrice !== p.eventPrice ? parseCoPrice(p.normalPrice) : null;
-    out.push({
-      sku: p.dataKey,
-      name: p.name ?? `Producto ${p.dataKey}`,
-      brand: p.brand,
-      category: 'Hogar',
-      subcategory: null,
-      url,
-      image_url: p.image,
-      seller: cleanSeller(p.sellerRaw),
-      price,
-      original_price: original,
-      stock: price !== null,
-    });
-  }
-  return out;
-}
-
-async function extractFromNextData(page: Page): Promise<ScrapedProduct[]> {
-  const rawResults = await page.evaluate(() => {
-    const el = document.getElementById('__NEXT_DATA__');
-    if (!el) return null;
-    try {
-      const json = JSON.parse(el.textContent || '');
-      return json?.props?.pageProps?.results ?? null;
-    } catch {
-      return null;
-    }
-  });
-  if (!Array.isArray(rawResults)) return [];
-
-  const out: ScrapedProduct[] = [];
-  const seen = new Set<string>();
-  for (const r of rawResults) {
-    const sku = String(r.productId ?? '');
-    if (!sku || seen.has(sku)) continue;
-    seen.add(sku);
-
-    const name = r.displayName ?? null;
-    const brand = r.brand ?? null;
-    const seller = r.sellerName ?? null;
-    const baseUrl = r.url ?? '';
-    const skuId = String(r.skuId ?? '');
-    const url = skuId && !baseUrl.endsWith(skuId) ? `${baseUrl}/${skuId}` : baseUrl;
-    const mediaUrls = Array.isArray(r.mediaUrls) ? r.mediaUrls : [];
-    const image = mediaUrls[0] ?? null;
-
-    let price: number | null = null;
-    let original: number | null = null;
-    if (Array.isArray(r.prices)) {
-      for (const p of r.prices) {
-        const raw = Array.isArray(p.price) ? p.price[0] : p.price;
-        const val = parseCoPrice(raw);
-        if (val === null) continue;
-        if (p.crossed === true) {
-          original = val;
-        } else if (['internetPrice', 'eventPrice', 'cmrPrice'].includes(p.type)) {
-          if (price === null) price = val;
-        } else if (price === null) {
-          price = val;
-        }
-      }
-    }
-    if (price === null && original !== null) {
-      price = original;
-      original = null;
-    }
-
-    out.push({
-      sku,
-      name: name ?? `Producto ${sku}`,
-      brand,
-      category: 'Hogar',
-      subcategory: null,
-      url,
-      image_url: image,
-      seller: cleanSeller(seller),
-      price,
-      original_price: original,
-      stock: price !== null,
-    });
-  }
-  return out;
-}
-
-async function collectListing(
-  browser: Browser,
+async function collectListingFast(
+  adapter: StoreAdapter,
   baseUrl: string,
   category: string,
-  subcategory: string
+  subcategory: string,
+  city: string | null,
+  term?: string
+): Promise<{ total: number; success: boolean }> {
+  if (!adapter.fetchListing) return { total: 0, success: false };
+
+  let total = 0;
+  const pageSeen = new Set<string>();
+  let finished = false;
+
+  for (let pageNo = 1; pageNo <= MAX_PAGES && !finished; pageNo++) {
+    try {
+      const products = await adapter.fetchListing(baseUrl, { page: pageNo, city, term });
+      if (!products || products.length === 0) {
+        if (pageNo === 1) return { total, success: false };
+        finished = true;
+        break;
+      }
+
+      const newProducts = products.filter((p) => !pageSeen.has(p.sku));
+      for (const p of products) pageSeen.add(p.sku);
+
+      if (newProducts.length === 0) {
+        console.warn(`  [fast pág ${pageNo}] ${products.length} pods sin SKUs nuevos -> detengo.`);
+        finished = true;
+        break;
+      }
+
+      const written = await upsertProductsBatch(
+        newProducts.map((p) => ({ ...p, category, subcategory })),
+        { store: adapter.code, city }
+      );
+      total += written;
+      console.log(
+        `  [fast pág ${pageNo}] ${products.length} items (${newProducts.length} nuevos, ${written} escritos, acumulado: ${total})`
+      );
+
+      await sleep((adapter.pageDelayMs ?? 400) + Math.floor(Math.random() * 200));
+    } catch (err) {
+      console.warn(`  [fast pág ${pageNo}] error: ${(err as Error).message}`);
+      if (pageNo === 1) return { total, success: false };
+      finished = true;
+      break;
+    }
+  }
+
+  return { total, success: true };
+}
+
+async function collectListingPlaywright(
+  browser: Browser | null,
+  adapter: StoreAdapter,
+  baseUrl: string,
+  category: string,
+  subcategory: string,
+  city: string | null
 ): Promise<number> {
-  const ctx = await browser.newContext({
+  const ownsBrowser = !browser;
+  const b = browser ?? (await chromium.launch({ headless: true }));
+  const ctx = await b.newContext({
     userAgent: USER_AGENT,
     viewport: { width: 1366, height: 900 },
     locale: 'es-CO',
   });
   const page = await ctx.newPage();
-  page.setDefaultTimeout(30000);
+  page.setDefaultTimeout(25000);
+
+  // Bloquear recursos innecesarios (imágenes, fuentes, estilos, telemetría) para máxima velocidad
+  await page.route('**/*', (route) => {
+    const resourceType = route.request().resourceType();
+    const url = route.request().url();
+    if (
+      ['image', 'media', 'font', 'stylesheet'].includes(resourceType) ||
+      url.includes('google-analytics') ||
+      url.includes('googletagmanager') ||
+      url.includes('datadog')
+    ) {
+      return route.abort();
+    }
+    return route.continue();
+  });
 
   const sep = baseUrl.includes('?') ? '&' : '?';
   let total = 0;
   const pageSeen = new Set<string>();
+
   try {
+    if (adapter.setRegion && city) {
+      await adapter.setRegion(page, city);
+    }
+
     let finished = false;
     for (let pageNo = 1; pageNo <= MAX_PAGES && !finished; pageNo++) {
       const target = pageNo === 1 ? baseUrl : `${baseUrl}${sep}page=${pageNo}`;
@@ -160,17 +118,17 @@ async function collectListing(
         await page.goto(target, { waitUntil: 'domcontentloaded' });
       } catch (err) {
         console.error(`  [guardar] ERROR navegando a página ${pageNo}:`, (err as Error).message);
-        await sleep(5000);
+        await sleep(3000);
         continue;
       }
 
       try {
-        await page.waitForSelector(POD_SELECTOR, { timeout: 20000 });
+        await adapter.waitForListing(page);
       } catch {
-        console.warn(`  [pág ${pageNo}] sin pods (posible bloqueo) -> reintento con backoff.`);
-        await sleep(15000);
+        console.warn(`  [pág ${pageNo}] sin pods -> reintento con backoff.`);
+        await sleep(5000);
         try {
-          await page.waitForSelector(POD_SELECTOR, { timeout: 20000 });
+          await adapter.waitForListing(page);
         } catch {
           console.warn(`  [pág ${pageNo}] sin pods tras reintento -> detengo.`);
           finished = true;
@@ -178,9 +136,8 @@ async function collectListing(
         }
       }
 
-      let products = await extractFromNextData(page);
+      let products = await adapter.extractListing(page);
       if (products.length === 0) {
-        console.warn(`  [pág ${pageNo}] JSON sin resultados -> fallback DOM con scroll`);
         await page.evaluate(async () => {
           const h = document.body.scrollHeight;
           for (let y = 0; y <= h; y += 800) {
@@ -189,8 +146,8 @@ async function collectListing(
           }
         });
         await page.evaluate(() => window.scrollTo(0, 0));
-        await sleep(1000);
-        products = await extractPods(page);
+        await sleep(500);
+        products = await adapter.extractListing(page);
       }
       if (products.length === 0) {
         finished = true;
@@ -207,70 +164,146 @@ async function collectListing(
       }
 
       const written = await upsertProductsBatch(
-        newProducts.map((p) => ({ ...p, category, subcategory }))
+        newProducts.map((p) => ({ ...p, category, subcategory })),
+        { store: adapter.code, city }
       );
       total += written;
       console.log(
         `  [pág ${pageNo}] ${products.length} pods (${newProducts.length} nuevos, ${written} escritos, acumulado: ${total})`
       );
 
-      await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * 1400));
+      await sleep((adapter.pageDelayMs ?? PAGE_DELAY_MS) + Math.floor(Math.random() * 600));
     }
   } finally {
     await ctx.close();
+    if (ownsBrowser) {
+      await b.close();
+    }
   }
   return total;
 }
 
-export async function collectTerm(term: string, subcategory = 'Búsqueda'): Promise<number> {
-  const url = `${FALABELLA_BASE}/falabella-co/search/?Ntt=${encodeURIComponent(term)}`;
-  const browser: Browser = await chromium.launch({ headless: true });
-  try {
-    return await collectListing(browser, url, 'Hogar', subcategory);
-  } finally {
-    await browser.close();
+async function collectListing(
+  browser: Browser | null,
+  adapter: StoreAdapter,
+  baseUrl: string,
+  category: string,
+  subcategory: string,
+  city: string | null,
+  term?: string
+): Promise<number> {
+  // 1. Intentar primero con el método rápido HTTP / API (Fast First)
+  if (adapter.fetchListing) {
+    const fastResult = await collectListingFast(adapter, baseUrl, category, subcategory, city, term);
+    if (fastResult.success) {
+      return fastResult.total;
+    }
+    console.warn(`  [fast] Sin resultados directos. Activando fallback a Playwright...`);
   }
+
+  // 2. Fallback a Playwright optimizado
+  return collectListingPlaywright(browser, adapter, baseUrl, category, subcategory, city);
 }
 
-async function collectSearch(browser: Browser, term: string, subcategory: string): Promise<number> {
-  const url = `${FALABELLA_BASE}/falabella-co/search/?Ntt=${encodeURIComponent(term)}`;
-  console.log(`-- Búsqueda "${term}": ${url}`);
-  const n = await collectListing(browser, url, 'Hogar', subcategory);
-  console.log(`   OK: ${n} productos en esta corrida\n`);
-  return n;
+export async function collectTerm(
+  term: string,
+  subcategory = 'Búsqueda',
+  store = 'all',
+  city: string | null = null
+): Promise<number> {
+  const storesToRun = store === 'all' ? Object.keys(ADAPTERS) : [store];
+  const results = await Promise.all(
+    storesToRun.map(async (st) => {
+      const adapter = ADAPTERS[st];
+      if (!adapter) return 0;
+      const url = adapter.searchUrl(term);
+      return collectListing(null, adapter, url, 'Hogar', subcategory, city, term);
+    })
+  );
+  return results.reduce((acc, n) => acc + n, 0);
+}
+
+function parseArg(prefix: string): string | undefined {
+  const m = process.argv.find((a) => a.startsWith(prefix));
+  if (m) return m.split('=')[1];
+  return undefined;
 }
 
 function parseGroupArg(): number | undefined {
-  const m = process.argv.find((a) => a.startsWith('--group='));
-  if (m) return Number(m.split('=')[1]);
-  return undefined;
+  const v = parseArg('--group=');
+  return v ? Number(v) : undefined;
 }
 
 async function main() {
   const start = Date.now();
   const group = parseGroupArg();
+  const store = parseArg('--store=') ?? 'falabella';
+  const city = parseArg('--city=') ?? null;
+  const adapter = ADAPTERS[store];
+  if (!adapter) {
+    console.error(`Tienda desconocida: ${store}. Disponibles: ${Object.keys(ADAPTERS).join(', ')}`);
+    process.exit(1);
+  }
+
   const terms = getSearchTerms(group);
 
   const mode = group
     ? `Grupo ${group}: ${terms.length} términos`
     : `Categorías: ${CATEGORIES.length} | Términos: ${terms.length}`;
-  console.log(`\n=== COLLECTOR FALABELLA ===`);
-  console.log(`${mode} | Máx páginas: ${MAX_PAGES}\n`);
+  console.log(`\n=== COLLECTOR ${adapter.name.toUpperCase()} (FAST HYBRID) ===`);
+  console.log(`${mode} | Máx páginas: ${MAX_PAGES} | Ciudad: ${city ?? 'nacional'}\n`);
 
-  const browser: Browser = await chromium.launch({ headless: true });
+  let browser: Browser | null = null;
   let total = 0;
+  const failed: { term: string; subcategory: string }[] = [];
   try {
     for (const s of terms) {
-      total += await collectSearch(browser, s.term, s.subcategory);
-    }
-    for (const cat of CATEGORIES) {
-      console.log(`-- Categoría ${cat.name} / ${cat.subcategory}: ${cat.url}`);
-      const n = await collectListing(browser, cat.url, cat.name, cat.subcategory);
+      const url = adapter.searchUrl(s.term);
+      console.log(`-- Búsqueda "${s.term}": ${url}`);
+      const n = await collectListing(browser, adapter, url, 'Hogar', s.subcategory, city, s.term);
       total += n;
       console.log(`   OK: ${n} productos en esta corrida\n`);
+      if (n === 0) failed.push({ term: s.term, subcategory: s.subcategory });
+      const termDelay = adapter.termDelayMs ?? 500;
+      if (termDelay > 0 && s !== terms[terms.length - 1]) {
+        await sleep(termDelay);
+      }
+    }
+    if (store === 'falabella') {
+      for (const cat of CATEGORIES) {
+        console.log(`-- Categoría ${cat.name} / ${cat.subcategory}: ${cat.url}`);
+        const n = await collectListing(browser, adapter, cat.url, cat.name, cat.subcategory, city);
+        total += n;
+        console.log(`   OK: ${n} productos en esta corrida\n`);
+        const termDelay = adapter.termDelayMs ?? 500;
+        if (termDelay > 0 && cat !== CATEGORIES[CATEGORIES.length - 1]) {
+          await sleep(termDelay);
+        }
+      }
+    }
+
+    if (failed.length > 0) {
+      console.log(`\n=== REINTENTO DE ${failed.length} TÉRMINOS FALLIDOS ===`);
+      await sleep(5000);
+      const retried: string[] = [];
+      for (const f of failed) {
+        const url = adapter.searchUrl(f.term);
+        console.log(`-- Reintento "${f.term}": ${url}`);
+        const n = await collectListing(browser, adapter, url, 'Hogar', f.subcategory, city, f.term);
+        total += n;
+        console.log(`   OK: ${n} productos en este reintento\n`);
+        if (n > 0) retried.push(f.term);
+        const termDelay = adapter.termDelayMs ?? 500;
+        if (termDelay > 0 && f !== failed[failed.length - 1]) {
+          await sleep(termDelay);
+        }
+      }
+      console.log(`Reintentos recuperados: ${retried.length}/${failed.length}`);
     }
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 
   const [pc, ph] = await Promise.all([getProductCount(), getPriceHistoryCount()]);
