@@ -223,7 +223,8 @@ export function parseVtexProducts(vtexProducts: any[]): ScrapedProduct[] {
     }
 
     const image = item?.images?.[0]?.imageUrl ?? null;
-    const url = p.link ? p.link.split(/[?#]/)[0] : `${EXITO_BASE}/${p.linkText}/p`;
+    const rawUrl = p.link ? p.link.split(/[?#]/)[0] : `${EXITO_BASE}/${p.linkText}/p`;
+    const url = rawUrl.replace(/^https?:\/\/tienda\.exito\.com/i, EXITO_BASE);
     const stock = commOffer?.AvailableQuantity ? commOffer.AvailableQuantity > 0 : price !== null;
 
     out.push({

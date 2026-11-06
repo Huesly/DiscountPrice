@@ -52,14 +52,23 @@ export interface Deal {
 
 export type SortKey = 'default' | 'price_asc' | 'price_desc' | 'discount' | 'newest' | 'deal_score';
 
+export interface CategoryStat {
+  category: string;
+  total: number;
+  deals: number;
+}
+
 export interface ProductFilters {
   query?: string;
+  category?: string;
   store?: string;
   brands?: string[];
   skus?: string[];
   minPrice?: number;
   maxPrice?: number;
   dealOnly?: boolean;
+  energyClassA?: boolean;
+  minDiscount?: number;
   favOnly?: boolean;
   sort?: SortKey;
 }
@@ -89,8 +98,8 @@ export interface GroupDetail {
   min_price: number | null;
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, { signal });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -103,7 +112,7 @@ async function post<T>(path: string): Promise<T> {
 
 export const api = {
   stats: () => get<Stats>('/api/stats'),
-  products: (f: ProductFilters = {}, limit = 24, offset = 0) => {
+  products: (f: ProductFilters = {}, limit = 24, offset = 0, signal?: AbortSignal) => {
     const q = new URLSearchParams();
     if (f.query) q.set('query', f.query);
     if (f.store) q.set('store', f.store);
@@ -111,18 +120,26 @@ export const api = {
     if (f.skus && f.skus.length) q.set('skus', f.skus.join(','));
     if (f.minPrice !== undefined) q.set('minPrice', String(f.minPrice));
     if (f.maxPrice !== undefined) q.set('maxPrice', String(f.maxPrice));
+    if (f.category) q.set('category', f.category);
+    if (f.minDiscount !== undefined) q.set('minDiscount', String(f.minDiscount));
     if (f.dealOnly) q.set('dealOnly', 'true');
+    if (f.energyClassA) q.set('energyClassA', 'true');
     if (f.sort && f.sort !== 'default') q.set('sort', f.sort);
     q.set('limit', String(limit));
     q.set('offset', String(offset));
-    return get<{ total: number; items: ProductRow[] }>(`/api/products?${q.toString()}`);
+    return get<{ total: number; items: ProductRow[] }>(`/api/products?${q.toString()}`, signal);
   },
   brands: () => get<string[]>('/api/brands'),
+  categories: () => get<CategoryStat[]>('/api/categories'),
+  collectFood: () => post<{ totalCollected: number; termsProcessed: number; matched?: any }>('/api/collect/food'),
   product: (sku: string) => get<ProductRow>(`/api/products/${sku}`),
   history: (sku: string) => get<HistoryPoint[]>(`/api/products/${sku}/history?limit=200`),
   statsFor: (sku: string) => get<{ product: ProductRow | null; stats: PriceStats }>(`/api/products/${sku}/stats`),
   deals: () => get<Deal[]>('/api/deals?limit=12'),
-  collect: (term: string) => post<{ term: string; added: number }>(`/api/collect?term=${encodeURIComponent(term)}`),
+  collect: (term: string, store = 'all') =>
+    post<{ term: string; store: string; added: number; matched?: any }>(
+      `/api/collect?term=${encodeURIComponent(term)}&store=${encodeURIComponent(store)}`
+    ),
   groups: (query = '', limit = 20) =>
     get<GroupRow[]>(`/api/groups?query=${encodeURIComponent(query)}&limit=${limit}`),
   group: (id: number) => get<GroupDetail>(`/api/groups/${id}`),
@@ -156,4 +173,8 @@ export const STORE_LABELS: Record<string, string> = {
   falabella: 'Falabella',
   exito: 'Éxito',
   homecenter: 'Homecenter',
+  alkosto: 'Alkosto',
+  ikea: 'IKEA Cali',
+  d1: 'D1',
+  ara: 'Ara',
 };

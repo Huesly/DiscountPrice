@@ -4,6 +4,10 @@ import { CATEGORIES, getSearchTerms, MAX_PAGES, PAGE_DELAY_MS, USER_AGENT } from
 import { falabellaAdapter } from './stores/falabella.js';
 import { exitoAdapter } from './stores/exito.js';
 import { homecenterAdapter } from './stores/homecenter.js';
+import { alkostoAdapter } from './stores/alkosto.js';
+import { d1Adapter, getAllD1Products } from './stores/d1.js';
+import { araAdapter, getAllAraProducts } from './stores/ara.js';
+import { ikeaAdapter } from './stores/ikea.js';
 import type { StoreAdapter } from './stores/types.js';
 import { upsertProductsBatch, getProductCount, getPriceHistoryCount, closePool } from './db/repo.js';
 import type { ScrapedProduct } from './db/repo.js';
@@ -14,7 +18,69 @@ const ADAPTERS: Record<string, StoreAdapter> = {
   falabella: falabellaAdapter,
   exito: exitoAdapter,
   homecenter: homecenterAdapter,
+  alkosto: alkostoAdapter,
+  d1: d1Adapter,
+  ara: araAdapter,
+  ikea: ikeaAdapter,
 };
+
+export function detectCategory(name: string, subcategory?: string | null, term?: string | null): string {
+  const text = `${name} ${subcategory ?? ''} ${term ?? ''}`.toLowerCase();
+
+  // 1. Excluir electrodomésticos y ferretería que usen palabras de comida
+  const isApplianceOrHardware = /\b(cafetera|olla|arrocera|extractor|maquina|máquina|molino|espumador|lavadora|secadora|torre de lavado|transformador|motor|vehicular|lubricante|crema corporal|serum|bloqueador|dispensador)\b/i.test(text);
+
+  // 2. Comidas y Supermercado
+  if (
+    !isApplianceOrHardware &&
+    /\b(arroz|leche|aceite|cafe|café|atun|atún|huevos|huevo|pollo|carne|pasta|pastas|espagueti|azucar|azúcar|queso|yogurt|yogur|pan|panaderia|galletas|chocolate|chocolatina|cereales|cereal|snack|snacks|gaseosa|cerveza|bebida|bebidas|alimento|alimentos|comida|comidas|mercado|despensa|grano|granos|frijol|frijoles|lenteja|lentejas|sardina|sardinas|atunes|jamon|jamón|salchicha|embutidos|fruta|frutas|verdura|verduras|detergente|jabon|jabón|blanqueador|desinfectante|suavizante|aseo)\b/i.test(text)
+  ) {
+    return 'Comidas y Supermercado';
+  }
+
+  // 3. Tecnología y Celulares
+  if (
+    /\b(celular|celulares|smartphone|samsung|iphone|apple|xiaomi|motorola|huawei|oppo|realme|infinix|computador|laptop|portatil|portátil|tablet|tv|televisor|pantalla|monitor|audifonos|audífonos|reloj|smartwatch|ups|regulador|bateria|teclado|mouse|impresora)\b/i.test(text)
+  ) {
+    return 'Tecnología y Celulares';
+  }
+
+  // 4. Electrohogar y Cocina
+  if (
+    /\b(licuadora|microondas|cafetera|lavadora|secadora|nevera|refrigerador|estufa|horno|airfryer|freidora|aspiradora|platos|ollas|olla|sarten|sartén|vajilla|cacerola|cubiertos|tazas|vasos|lavadero|lavaplatos|maquina afeitar|afeitadora|plancha|batidora|tostadora|procesador|arrocera|dispensador)\b/i.test(text)
+  ) {
+    return 'Electrohogar y Cocina';
+  }
+
+  // 5. Muebles y Hogar
+  if (
+    /\b(mesa|mesas|silla|sillas|comedor|escritorio|colchon|colchón|closet|armario|tapete|lampara|lámpara|mesita|mueble|sofa|sofá|cama|tocador|comoda|cómoda|estante|repisa|persiana|persianas|plegable|plegables|jardin|jardín|almohada|sabana|sábanas|edredon|edredón|cortina|cortinas)\b/i.test(text)
+  ) {
+    return 'Muebles y Hogar';
+  }
+
+  return 'Hogar y Variados';
+}
+
+export const FOOD_SEARCH_TERMS = [
+  'arroz',
+  'aceite vegetal',
+  'leche entera',
+  'cafe molido',
+  'atun lomitos',
+  'huevos',
+  'pollo',
+  'pasta espagueti',
+  'azucar',
+  'queso',
+  'yogurt',
+  'pan tajado',
+  'galletas',
+  'chocolate',
+  'cereales',
+  'gaseosa',
+  'detergente',
+];
 
 async function collectListingFast(
   adapter: StoreAdapter,
@@ -49,7 +115,11 @@ async function collectListingFast(
       }
 
       const written = await upsertProductsBatch(
-        newProducts.map((p) => ({ ...p, category, subcategory })),
+        newProducts.map((p) => ({
+          ...p,
+          category: category && category !== 'Hogar' ? category : detectCategory(p.name, subcategory, term),
+          subcategory: subcategory ?? term ?? null,
+        })),
         { store: adapter.code, city }
       );
       total += written;
@@ -164,7 +234,11 @@ async function collectListingPlaywright(
       }
 
       const written = await upsertProductsBatch(
-        newProducts.map((p) => ({ ...p, category, subcategory })),
+        newProducts.map((p) => ({
+          ...p,
+          category: category && category !== 'Hogar' ? category : detectCategory(p.name, subcategory, term),
+          subcategory: subcategory ?? term ?? null,
+        })),
         { store: adapter.code, city }
       );
       total += written;
@@ -209,18 +283,41 @@ export async function collectTerm(
   term: string,
   subcategory = 'Búsqueda',
   store = 'all',
-  city: string | null = null
+  city: string | null = null,
+  category?: string
 ): Promise<number> {
+  const cat = category ?? detectCategory(term, subcategory);
   const storesToRun = store === 'all' ? Object.keys(ADAPTERS) : [store];
   const results = await Promise.all(
     storesToRun.map(async (st) => {
       const adapter = ADAPTERS[st];
       if (!adapter) return 0;
       const url = adapter.searchUrl(term);
-      return collectListing(null, adapter, url, 'Hogar', subcategory, city, term);
+      return collectListing(null, adapter, url, cat, subcategory, city, term);
     })
   );
   return results.reduce((acc, n) => acc + n, 0);
+}
+
+export async function collectFoodDeals(): Promise<{ totalCollected: number; termsProcessed: number }> {
+  let total = 0;
+  // 1. Insertar catálogo completo de D1 y Ara
+  try {
+    total += await upsertProductsBatch(getAllD1Products(), { store: 'd1', city: null });
+    total += await upsertProductsBatch(getAllAraProducts(), { store: 'ara', city: null });
+  } catch (e) {
+    console.warn('Error insertando D1/Ara:', (e as Error).message);
+  }
+  // 2. Colectar en vivo desde Éxito
+  for (const term of FOOD_SEARCH_TERMS) {
+    try {
+      const n = await collectTerm(term, 'Supermercado', 'exito', null, 'Comidas y Supermercado');
+      total += n;
+    } catch (e) {
+      console.warn(`Error colectando alimento "${term}":`, (e as Error).message);
+    }
+  }
+  return { totalCollected: total, termsProcessed: FOOD_SEARCH_TERMS.length };
 }
 
 function parseArg(prefix: string): string | undefined {
@@ -302,7 +399,7 @@ async function main() {
     }
   } finally {
     if (browser) {
-      await browser.close();
+      await (browser as Browser).close();
     }
   }
 

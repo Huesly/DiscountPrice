@@ -1,5 +1,8 @@
 import type { ProductRow } from '../api';
+import { useStaggerCards } from '../utils/smoothAnimations';
 import ProductCard from './ProductCard';
+import ProductSkeletonGrid from './ProductSkeletonGrid';
+import GIcon from './GIcon';
 
 interface Props {
   items: ProductRow[];
@@ -10,35 +13,45 @@ interface Props {
   skeletonCount?: number;
 }
 
-export default function ProductGrid({ items, loading, isFav, onToggleFav, onOpen, skeletonCount = 24 }: Props) {
+export default function ProductGrid({
+  items,
+  loading,
+  isFav,
+  onToggleFav,
+  onOpen,
+  skeletonCount = 16,
+}: Props) {
+  const depKey = loading ? 'loading' : items.map((i) => `${i.store}:${i.sku}`).join('|');
+  const gridRef = useStaggerCards<HTMLDivElement>(depKey);
+
   if (loading) {
-    return (
-      <div className="grid">
-        {Array.from({ length: skeletonCount }, (_, i) => (
-          <div key={i} className="card pc-skeleton">
-            <div className="skeleton" style={{ aspectRatio: '1', borderRadius: 10 }} />
-            <div className="skeleton" style={{ height: 12, width: '50%', marginTop: 10 }} />
-            <div className="skeleton" style={{ height: 12, width: '90%', marginTop: 8 }} />
-            <div className="skeleton" style={{ height: 16, width: '40%', marginTop: 10 }} />
-          </div>
-        ))}
-      </div>
-    );
+    return <ProductSkeletonGrid count={skeletonCount} />;
   }
 
   if (items.length === 0) {
     return (
-      <div className="card empty">
-        <div style={{ fontSize: 34, marginBottom: 6 }}>🔍</div>
-        <p>No hay productos que coincidan con tu búsqueda.</p>
+      <div className="card empty-state-box">
+        <div className="empty-icon-wrap">
+          <GIcon name="search_off" size={40} className="empty-icon" />
+        </div>
+        <h3 className="empty-title">Sin resultados en esta selección</h3>
+        <p className="empty-desc">
+          Prueba cambiando los filtros, escribiendo otro término en el buscador o seleccionando otra tienda.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="grid">
+    <div ref={gridRef} className="grid">
       {items.map((p) => (
-        <ProductCard key={p.sku} p={p} isFav={isFav(p.sku)} onToggleFav={onToggleFav} onOpen={onOpen} />
+        <ProductCard
+          key={`${p.store}:${p.sku}`}
+          p={p}
+          isFav={isFav(p.sku)}
+          onToggleFav={onToggleFav}
+          onOpen={onOpen}
+        />
       ))}
     </div>
   );

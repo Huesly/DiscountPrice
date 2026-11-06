@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, Heart, X } from 'lucide-react';
 import type { HistoryPoint, PriceStats, ProductRow } from '../api';
 import { api, fmt, discountPct, STORE_LABELS } from '../api';
 import { useFavorites } from '../hooks/useFavorites';
+import { getUnitMeasure, getEnergyEfficiencyInfo, buildWhatsAppShareUrl, normalizeProductUrl } from '../utils/unitMeasure';
 import PriceChart from './PriceChart';
 import ProductImage from './ProductImage';
+import GIcon from './GIcon';
 
 interface Props {
   sku: string;
@@ -63,6 +64,9 @@ export default function DetailSheet({ sku, onClose }: Props) {
 
   const d = p ? discountPct(p) : null;
   const fav = p ? isFav(p.sku) : false;
+  const unitInfo = p ? getUnitMeasure(p.name, p.price) : null;
+  const energyInfo = p ? getEnergyEfficiencyInfo(p.name) : null;
+  const storeLabel = p ? (STORE_LABELS[p.store] ?? p.store) : '';
 
   return (
     <>
@@ -71,7 +75,7 @@ export default function DetailSheet({ sku, onClose }: Props) {
         <div className="sheet-handle" />
         <div className="sheet-close">
           <button className="btn btn-icon" onClick={onClose} aria-label="Cerrar">
-            <X size={20} />
+            <GIcon name="close" size={20} />
           </button>
         </div>
 
@@ -110,8 +114,18 @@ export default function DetailSheet({ sku, onClose }: Props) {
                     </>
                   )}
                 </div>
+                {energyInfo && (
+                  <div className="pc-unit-row" style={{ marginTop: 6 }}>
+                    <span className="pc-energy-badge">{energyInfo.badgeText}</span>
+                  </div>
+                )}
+                {unitInfo && (
+                  <div className="pc-unit-row" style={{ marginTop: 6 }}>
+                    <span className="pc-unit-badge">{unitInfo.badgeText}</span>
+                  </div>
+                )}
                 <div className="pc-store-row">
-                  <span className={`store-badge store-${p.store}`}>{STORE_LABELS[p.store] ?? p.store}</span>
+                  <span className={`store-badge store-${p.store}`}>{storeLabel}</span>
                 </div>
               </div>
             </div>
@@ -137,11 +151,26 @@ export default function DetailSheet({ sku, onClose }: Props) {
                 className={`btn ${fav ? 'btn-primary' : ''}`}
                 onClick={() => toggle(p.sku)}
               >
-                <Heart size={15} fill={fav ? 'currentColor' : 'none'} />
-                {fav ? 'En favoritos' : 'Favorito'}
+                <GIcon name="favorite" size={17} fill={fav} />
+                {fav ? 'Guardado' : 'Guardar'}
               </button>
-              <a className="btn btn-primary" href={p.url} target="_blank" rel="noreferrer">
-                <ExternalLink size={15} /> Ver en {STORE_LABELS[p.store] ?? p.store}
+              <a
+                className="btn btn-whatsapp"
+                href={buildWhatsAppShareUrl({
+                  name: p.name,
+                  store: p.store,
+                  price: p.price,
+                  original_price: p.original_price,
+                  url: p.url,
+                  storeLabel,
+                })}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <GIcon name="chat" size={17} /> Enviar a WhatsApp
+              </a>
+              <a className="btn btn-primary" href={normalizeProductUrl(p.url, p.store)} target="_blank" rel="noreferrer">
+                <GIcon name="open_in_new" size={17} /> Ver en {storeLabel}
               </a>
             </div>
           </>

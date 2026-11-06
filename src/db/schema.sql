@@ -80,4 +80,4 @@ CREATE TABLE IF NOT EXISTS product_group_members (
   KEY idx_pgm_product (product_id)
 ) ENGINE=InnoDB;
 
-INSERT IGNORE INTO stores (code, name) VALUES ('falabella', 'Falabella'), ('exito', 'Éxito');
+INSERT IGNORE INTO stores (code, name) VALUES ('falabella', 'Falabella'), ('exito', 'Éxito'), ('homecenter', 'Homecenter'), ('alkosto', 'Alkosto');

@@ -36,7 +36,7 @@ async function tableExists(table: string): Promise<boolean> {
 
 async function migrate() {
   await conn.query('CREATE TABLE IF NOT EXISTS stores (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, code VARCHAR(30) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB');
-  await conn.query("INSERT IGNORE INTO stores (code, name) VALUES ('falabella', 'Falabella'), ('exito', 'Éxito'), ('homecenter', 'Homecenter')");
+  await conn.query("INSERT IGNORE INTO stores (code, name) VALUES ('falabella', 'Falabella'), ('exito', 'Éxito'), ('homecenter', 'Homecenter'), ('alkosto', 'Alkosto'), ('d1', 'Tiendas D1'), ('ara', 'Tiendas Ara')");
 
   if (!(await columnExists('products', 'store'))) {
     await conn.query("ALTER TABLE products ADD COLUMN store VARCHAR(30) NOT NULL DEFAULT 'falabella' AFTER id");

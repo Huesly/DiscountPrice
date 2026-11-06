@@ -17,6 +17,7 @@
     "collector:homecenter": "tsx src/collector.ts --store=homecenter",
     "collector:homecenter:1": "tsx src/collector.ts --store=homecenter --group=1",
     "collector:homecenter:2": "tsx src/collector.ts --store=homecenter --group=2",
+    "collector:ikea": "tsx src/collector.ts --store=ikea --city=Cali",
     "analyze": "tsx src/analyzer.ts",
     "match": "tsx src/match.ts",
     "dedupe": "tsx src/dedupe.ts",

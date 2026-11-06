@@ -43,3 +43,29 @@ ups
 sistema ups
 regulador
 bateria ups
+
+# grupo 4
+persianas
+mesa plegable
+mesas plegables
+celular samsung
+celulares samsung
+
+# grupo 5 - Comidas y Supermercado
+arroz
+aceite vegetal
+leche entera
+cafe molido
+atun lomitos
+huevos
+pollo
+pasta espagueti
+azucar
+queso
+yogurt
+pan tajado
+galletas
+chocolate
+cereales
+gaseosa
+detergente

@@ -2,3 +2,7 @@ node_modules/
 tmp/
 .env
 *.log
+ngrok*.yml
+scratch/
+dist/
+

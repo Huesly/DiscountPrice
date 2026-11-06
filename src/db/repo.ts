@@ -43,6 +43,7 @@ export async function upsertProductsBatch(items: ScrapedProduct[], opts: UpsertO
     try {
       await conn.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
       await conn.beginTransaction();
+      await conn.query('INSERT IGNORE INTO stores (code, name) VALUES (?, ?)', [store, store.toUpperCase()]);
 
       const skus = Array.from(new Set(items.map((i) => i.sku))).sort();
       const inPlaceholders = skus.map(() => '?').join(', ');
@@ -201,7 +202,7 @@ export async function getProductsWithLatestPrice(): Promise<ProductWithLatestPri
     id: Number(r.id),
     sku: r.sku as string,
     name: r.name as string,
-    url: r.url as string,
+    url: (r.url as string).replace(/^https?:\/\/tienda\.exito\.com/i, 'https://www.exito.com'),
     category: r.category as string,
     price: Number(r.price),
     original_price: r.original_price === null ? null : Number(r.original_price),
@@ -308,7 +309,7 @@ function mapProductRow(r: RowDataPacket): ProductRow {
     brand: (r.brand as string | null) ?? null,
     category: (r.category as string | null) ?? null,
     seller: (r.seller as string | null) ?? null,
-    url: (r.url as string).split(/[?#]/)[0],
+    url: (r.url as string).split(/[?#]/)[0].replace(/^https?:\/\/tienda\.exito\.com/i, 'https://www.exito.com'),
     image_url: (r.image_url as string | null) ?? null,
     price: r.price === null ? null : Number(r.price),
     original_price: r.original_price === null ? null : Number(r.original_price),
@@ -384,6 +385,7 @@ export interface ActiveDealRow {  sku: string;
 
 export interface ProductFilters {
   query?: string;
+  category?: string;
   store?: string;
   brand?: string;
   brands?: string[];
@@ -391,31 +393,69 @@ export interface ProductFilters {
   minPrice?: number;
   maxPrice?: number;
   dealOnly?: boolean;
+  energyClassA?: boolean;
+  minDiscount?: number;
   sort?: 'default' | 'price_asc' | 'price_desc' | 'discount' | 'newest' | 'deal_score';
 }
 
 const SORT_MAP: Record<NonNullable<ProductFilters['sort']>, string> = {
-  default: 'p.current_price DESC',
+  default: 'p.current_price ASC',
   price_asc: 'p.current_price ASC',
   price_desc: 'p.current_price DESC',
   discount:
-    '(p.current_price / NULLIF(p.original_price, 0)) IS NULL, (p.current_price / NULLIF(p.original_price, 0)) ASC',
+    '(p.original_price IS NULL OR p.original_price <= p.current_price), (p.current_price / NULLIF(p.original_price, 0)) ASC, p.current_price ASC',
   newest: 'p.created_at DESC',
   deal_score:
     '(SELECT MAX(dd.deal_score) FROM deals dd WHERE dd.product_id = p.id AND dd.status = "active") DESC',
 };
 
 function buildProductWhere(f: ProductFilters): { sql: string; params: (string | number)[] } {
-  const clauses: string[] = [];
+  const clauses: string[] = ['p.current_price IS NOT NULL'];
   const params: (string | number)[] = [];
+  const qNorm = (f.query ?? '').toLowerCase().trim();
+
   if (f.store) {
     clauses.push('p.store = ?');
     params.push(f.store);
   }
-  if (f.query) {
-    clauses.push('(p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ?)');
-    params.push(`%${f.query}%`, `%${f.query}%`, `%${f.query}%`);
+
+  // Exact Category Filtering
+  if (f.category === 'Muebles y Hogar') {
+    clauses.push("p.category IN ('Muebles y Hogar', 'Hogar y Variados')");
+  } else if (f.category) {
+    clauses.push('p.category = ?');
+    params.push(f.category);
   }
+
+  // Intelligent Search Term Matching & Synonyms
+  if (qNorm) {
+    if (/\b(airfryer|freidora)\b/i.test(qNorm)) {
+      clauses.push('(p.name LIKE ? OR p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ?)');
+      params.push('%freidora%', '%airfryer%', `%${f.query}%`, `%${f.query}%`);
+    } else if (/\b(nevera|neveras|nevecon|nevecón|refrigerador)\b/i.test(qNorm)) {
+      clauses.push('(p.name LIKE ? OR p.name LIKE ? OR p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ?)');
+      params.push('%nevera%', '%nevecon%', '%refrigerador%', `%${f.query}%`, `%${f.query}%`);
+      clauses.push(
+        "p.name NOT REGEXP 'portatil|portátil|camping|icopor|hielera|cava|vinos|botellas|silla|organizador|base para|soporte|protector|forro|iman|imán|filtro|repuesto|dispensador de agua'"
+      );
+    } else if (/\b(lampara|lámpara|iluminacion|iluminación)\b/i.test(qNorm)) {
+      clauses.push('(p.name LIKE ? OR p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ?)');
+      params.push('%lampara%', '%lámpara%', `%${f.query}%`, `%${f.query}%`);
+    } else {
+      clauses.push('(p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ?)');
+      params.push(`%${f.query}%`, `%${f.query}%`, `%${f.query}%`);
+    }
+  }
+
+  if (f.energyClassA) {
+    clauses.push(
+      "p.name REGEXP 'inverter|tipo a|clase a|eficiencia a|ahorro|no frost|ert|erb|rmu|rma|himalaya|austria|lumina|lúmina|cr239|cr256|cr 239|cr 256|n220|n250|nev 207|bcd|rt2|rlh|mdrd|ri-|k-n|h4160|h6161'"
+    );
+    clauses.push(
+      "p.name NOT REGEXP 'portatil|portátil|camping|icopor|hielera|cava|vinos|botellas'"
+    );
+  }
+
   if (f.brand) {
     clauses.push('p.brand = ?');
     params.push(f.brand);
@@ -436,9 +476,14 @@ function buildProductWhere(f: ProductFilters): { sql: string; params: (string | 
     clauses.push('p.current_price <= ?');
     params.push(f.maxPrice);
   }
+  if (f.minDiscount !== undefined && f.minDiscount > 0) {
+    clauses.push('p.original_price IS NOT NULL AND p.original_price > p.current_price');
+    clauses.push('((p.original_price - p.current_price) / p.original_price * 100) >= ?');
+    params.push(f.minDiscount);
+  }
   if (f.dealOnly) {
     clauses.push(
-      "EXISTS (SELECT 1 FROM deals dd WHERE dd.product_id = p.id AND dd.status = 'active')"
+      "((p.original_price IS NOT NULL AND p.original_price > p.current_price) OR EXISTS (SELECT 1 FROM deals dd WHERE dd.product_id = p.id AND dd.status = 'active'))"
     );
   }
   return {
@@ -522,7 +567,7 @@ export async function getActiveDeals(limit = 20): Promise<ActiveDealRow[]> {
   return rows.map((r) => ({
     sku: r.sku as string,
     name: r.name as string,
-    url: r.url as string,
+    url: (r.url as string).replace(/^https?:\/\/tienda\.exito\.com/i, 'https://www.exito.com'),
     image_url: (r.image_url as string | null) ?? null,
     brand: (r.brand as string | null) ?? null,
     price: Number(r.price),
@@ -615,7 +660,7 @@ export async function getGroupMembers(groupId: number): Promise<GroupMemberRow[]
     store: r.store as string,
     sku: r.sku as string,
     name: r.name as string,
-    url: r.url as string,
+    url: (r.url as string).replace(/^https?:\/\/tienda\.exito\.com/i, 'https://www.exito.com'),
     image_url: (r.image_url as string | null) ?? null,
     brand: (r.brand as string | null) ?? null,
     price: r.price === null ? null : Number(r.price),
@@ -672,4 +717,27 @@ export async function findGroupBySku(store: string, sku: string): Promise<number
     [store, sku]
   );
   return rows.length ? Number(rows[0].group_id) : null;
+}
+
+export interface CategoryStat {
+  category: string;
+  total: number;
+  deals: number;
+}
+
+export async function getCategories(): Promise<CategoryStat[]> {
+  const [rows] = await (await getPool()).query<RowDataPacket[]>(
+    `SELECT p.category, 
+            COUNT(*) AS total,
+            SUM(CASE WHEN (p.original_price IS NOT NULL AND p.original_price > p.current_price) OR EXISTS (SELECT 1 FROM deals d WHERE d.product_id = p.id AND d.status = 'active') THEN 1 ELSE 0 END) AS deals
+     FROM products p
+     WHERE p.active = 1 AND p.category IS NOT NULL
+     GROUP BY p.category
+     ORDER BY total DESC`
+  );
+  return rows.map((r) => ({
+    category: r.category as string,
+    total: Number(r.total),
+    deals: Number(r.deals),
+  }));
 }
