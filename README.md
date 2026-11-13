@@ -1,4 +1,4 @@
-# DealFinder Pro 🇨🇴 — Plataforma Nacional de Inteligencia de Compras y Comparación de Ofertas
+# DealFinder — Plataforma Nacional de Inteligencia de Compras y Comparación de Ofertas
 
 ![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?logo=typescript&logoColor=white)
