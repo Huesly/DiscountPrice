@@ -1,5 +1,12 @@
 # DealFinder Pro 🇨🇴 — Plataforma Nacional de Inteligencia de Compras y Comparación de Ofertas
 
+![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?logo=typescript&logoColor=white)
+![Fastify](https://img.shields.io/badge/Fastify-5.0-000000?logo=fastify&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![MariaDB](https://img.shields.io/badge/MariaDB-10.4%2B-003545?logo=mariadb&logoColor=white)
+![Comercios](https://img.shields.io/badge/Comercios-7%20Nacionales-059669)
+
 Plataforma integral de **Shopping Intelligence & Editorial FinTech** diseñada para recopilar, normalizar, auditar y comparar en tiempo real productos y ofertas de los principales comercios nacionales de Colombia (**Falabella, Éxito, Alkosto, Homecenter, IKEA Cali, Tiendas D1 y Tiendas Ara**).
 
 A través de un motor híbrido de extracción multitienda (*Fast-First APIs + Playwright*), almacenamiento relacional en **MariaDB**, un comparador algorítmico (*Cross-Store Matcher*) y una interfaz moderna sin sobrecarga visual (*"anti-slop" design*, estilo *Stripe / Wirecutter / Klarna*), **DealFinder Pro** permite a los usuarios descubrir ahorros reales, auditar descuentos inflados y encontrar el mejor precio garantizado.
