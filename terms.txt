@@ -69,3 +69,15 @@ chocolate
 cereales
 gaseosa
 detergente
+
+# grupo 6 - Apple y Dispositivos
+macbook
+macbook air
+macbook pro
+iphone
+iphone 15
+iphone 16
+ipad
+ipad air
+ipad pro
+

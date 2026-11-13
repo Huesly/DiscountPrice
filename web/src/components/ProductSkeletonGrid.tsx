@@ -1,31 +1,47 @@
-interface Props {
+interface ProductSkeletonGridProps {
   count?: number;
 }
 
-export default function ProductSkeletonGrid({ count = 12 }: Props) {
+export default function ProductSkeletonGrid({ count = 12 }: ProductSkeletonGridProps) {
   const items = Array.from({ length: count }, (_, i) => i);
 
   return (
-    <div className="grid product-skeleton-grid" aria-busy="true" aria-label="Cargando productos...">
+    <div
+      className="df-product-grid"
+      aria-busy="true"
+      aria-label="Cargando ofertas..."
+    >
       {items.map((i) => (
-        <article key={i} className="card product-card skeleton-card">
-          <div className="pc-img-wrap skeleton-box skeleton-img-box">
-            <div className="skeleton-badge" />
+        <article key={i} className="df-card df-skeleton-card">
+          {/* Top Bar Skeleton */}
+          <div className="df-card-top-bar">
+            <div className="df-skel-box df-skel-store" />
+            <div className="df-skel-box df-skel-badge" />
+            <div className="df-skel-box df-skel-fav" />
           </div>
 
-          <div className="pc-header skeleton-content">
-            <div className="skeleton-line skeleton-brand" />
-            <div className="skeleton-line skeleton-title-1" />
-            <div className="skeleton-line skeleton-title-2" />
+          {/* Image Box Skeleton */}
+          <div className="df-card-image-wrap">
+            <div className="df-skel-box df-skel-image" />
+          </div>
 
-            <div className="skeleton-price-section">
-              <div className="skeleton-line skeleton-price" />
-              <div className="skeleton-line skeleton-subprice" />
+          {/* Content Body Skeleton */}
+          <div className="df-card-body">
+            <div className="df-skel-box df-skel-brand" />
+            <div className="df-skel-box df-skel-title-1" />
+            <div className="df-skel-box df-skel-title-2" />
+            <div className="df-skel-box df-skel-meta" />
+
+            {/* Price Block Skeleton */}
+            <div className="df-price-block">
+              <div className="df-skel-box df-skel-price-main" />
+              <div className="df-skel-box df-skel-savings" />
             </div>
 
-            <div className="skeleton-actions">
-              <div className="skeleton-btn" />
-              <div className="skeleton-btn" />
+            {/* Actions Skeleton */}
+            <div className="df-card-actions">
+              <div className="df-skel-box df-skel-btn-primary" />
+              <div className="df-skel-box df-skel-btn-icon" />
             </div>
           </div>
         </article>

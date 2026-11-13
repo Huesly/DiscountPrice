@@ -128,8 +128,9 @@ app.post('/api/collect', async (req, reply) => {
   if (!t) return reply.code(400).send({ error: 'Falta el parámetro term' });
   try {
     const added = await collectTerm(t, 'Búsqueda', store, city, category);
-    const matched = await runMatcher(false);
-    return { term: t, store, added, matched };
+    // Ejecutar matcher asíncronamente en segundo plano para responder sin retrasar la respuesta
+    runMatcher(false).catch((e) => app.log.warn('Matcher background error: ' + (e as Error).message));
+    return { term: t, store, added, matched: 'background' };
   } catch (err) {
     app.log.error(err);
     return reply.code(500).send({ error: 'Error colectando el término' });

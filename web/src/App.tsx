@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import type { ProductFilters, ProductRow, SortKey } from './api';
+import type { ProductFilters, ProductRow, SortKey, Stats } from './api';
 import { api } from './api';
 import { useUrlFilters, type UrlFilters } from './hooks/useUrlFilters';
 import { useFavorites } from './hooks/useFavorites';
 import Header from './components/Header';
-import CategoryBar from './components/CategoryBar';
-import FilterBar from './components/FilterBar';
+import QuickPresetsBar from './components/QuickPresetsBar';
+import SidebarFilters from './components/SidebarFilters';
+import ActiveFilterChips from './components/ActiveFilterChips';
+import MobileFilterDrawer from './components/MobileFilterDrawer';
 import ProductGrid from './components/ProductGrid';
 import Pagination from './components/Pagination';
 import DetailSheet from './components/DetailSheet';
@@ -24,12 +26,24 @@ function Shell() {
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState(false);
   const [openSku, setOpenSku] = useState<string | null>(null);
-  const [collectingFood, setCollectingFood] = useState(false);
+  const [globalStats, setGlobalStats] = useState<Stats | null>(null);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   const favSet = useMemo(() => new Set(favorites), [favorites]);
 
   const abortCtrlRef = useRef<AbortController | null>(null);
   const reqIdRef = useRef(0);
+
+  // Fetch stats on mount for store counts
+  useEffect(() => {
+    let alive = true;
+    api.stats().then((s) => {
+      if (alive) setGlobalStats(s);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const fetchProducts = useCallback(async () => {
     if (abortCtrlRef.current) {
@@ -76,94 +90,96 @@ function Shell() {
     async (term: string) => {
       await api.collect(term);
       await fetchProducts();
+      // Refresh stats
+      api.stats().then(setGlobalStats).catch(() => {});
     },
     [fetchProducts]
   );
 
-  const handleCollectFood = useCallback(async () => {
-    setCollectingFood(true);
-    try {
-      await api.collectFood();
-      await fetchProducts();
-    } finally {
-      setCollectingFood(false);
-    }
-  }, [fetchProducts]);
-
-  const handleSelectCategory = useCallback(
-    (categoryId: string) => {
-      set({
-        category: categoryId,
-        query: '',
-        energyA: false,
-        page: 1,
-      });
-    },
-    [set]
-  );
-
-  const handleSelectVariable = useCallback(
-    (term: string, opts?: { category?: string; energyA?: boolean }) => {
-      set({
-        category: opts?.category !== undefined ? opts.category : filters.category,
-        query: term,
-        energyA: Boolean(opts?.energyA),
-        page: 1,
-      });
-    },
-    [set, filters.category]
-  );
-
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const activeStoresCount = globalStats?.store_counts
+    ? Object.keys(globalStats.store_counts).length
+    : 7;
 
   return (
     <>
-      <div className="container main">
+      {/* 1-Click Quick Presets Bar */}
+      <QuickPresetsBar
+        filters={filters}
+        onChange={set}
+        onReset={reset}
+        favCount={favorites.length}
+      />
+
+      <div className="df-layout-container">
         {apiError && (
-          <ErrorBanner
-            message="No se pudo conectar con la API. Revisa que el servidor esté corriendo."
-            onDismiss={() => setApiError(false)}
-          />
+          <div className="df-error-wrapper">
+            <ErrorBanner
+              message="No se pudo conectar con la API de precios. Revisa que el servidor backend esté en línea."
+              onDismiss={() => setApiError(false)}
+            />
+          </div>
         )}
 
-        {/* Explorador Dinámico: Categorías Principales y Variables de Producto */}
-        <CategoryBar
-          activeCategory={filters.category}
-          activeTerm={filters.query}
-          activeEnergyA={filters.energyA}
-          onSelectCategory={handleSelectCategory}
-          onSelectVariable={handleSelectVariable}
-          onCollectFood={handleCollectFood}
-          collectingFood={collectingFood}
-        />
+        <div className="df-main-grid">
+          {/* Desktop Modular Sticky Sidebar */}
+          <div className="df-sidebar-column">
+            <SidebarFilters
+              filters={filters}
+              storeCounts={globalStats?.store_counts}
+              onChange={set}
+              onReset={reset}
+              onCollect={handleCollect}
+            />
+          </div>
 
-        {/* Buscador General y Filtros Avanzados */}
-        <FilterBar
-          filters={filters}
-          total={total}
-          onChange={set}
-          onReset={reset}
-          favCount={favorites.length}
-          onCollect={handleCollect}
-        />
+          {/* Main Product Catalog Section */}
+          <main className="df-content-column">
+            {/* Active Chips Toolbar + Sort + Live Counter */}
+            <ActiveFilterChips
+              filters={filters}
+              total={total}
+              storeCount={activeStoresCount}
+              loading={loading}
+              onChange={set}
+              onReset={reset}
+              onOpenMobileFilters={() => setMobileDrawerOpen(true)}
+            />
 
-        {/* Cuadrícula de Productos */}
-        <ProductGrid
-          items={items}
-          loading={loading}
-          isFav={(sku) => favSet.has(sku)}
-          onToggleFav={toggle}
-          onOpen={(p) => setOpenSku(p.sku)}
-        />
+            {/* Product Cards Grid */}
+            <ProductGrid
+              items={items}
+              loading={loading}
+              isFav={(sku) => favSet.has(sku)}
+              onToggleFav={toggle}
+              onOpen={(p) => setOpenSku(p.sku)}
+              onResetFilters={reset}
+            />
 
-        {/* Paginación */}
-        <Pagination
-          page={filters.page}
-          pages={pages}
-          total={total}
-          onPage={(p) => set({ page: p })}
-        />
+            {/* Pagination */}
+            <Pagination
+              page={filters.page}
+              pages={pages}
+              total={total}
+              onPage={(p) => set({ page: p })}
+            />
+          </main>
+        </div>
       </div>
+
+      {/* Mobile Accessible Filter Drawer */}
+      <MobileFilterDrawer
+        isOpen={mobileDrawerOpen}
+        onClose={() => setMobileDrawerOpen(false)}
+        filters={filters}
+        total={total}
+        storeCounts={globalStats?.store_counts}
+        onChange={set}
+        onReset={reset}
+        onCollect={handleCollect}
+      />
+
+      {/* Product Detail Modal */}
       {openSku && <DetailSheet sku={openSku} onClose={() => setOpenSku(null)} />}
     </>
   );
@@ -179,15 +195,25 @@ function buildApiFilters(
   if (filters.store) f.store = filters.store;
   if (filters.dealOnly) f.dealOnly = true;
   if (filters.energyA) f.energyClassA = true;
+  if (filters.minDiscount !== undefined) f.minDiscount = filters.minDiscount;
+  if (filters.minPrice !== undefined) f.minPrice = filters.minPrice;
+  if (filters.maxPrice !== undefined) f.maxPrice = filters.maxPrice;
   if (filters.favOnly && favorites.length) f.skus = favorites;
   f.sort = (filters.sort === 'default' ? 'price_asc' : filters.sort) as SortKey;
   return f;
 }
 
 export default function App() {
+  const { favorites } = useFavorites();
+  const [totalCatalog, setTotalCatalog] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    api.stats().then((s) => setTotalCatalog(s.products)).catch(() => {});
+  }, []);
+
   return (
     <BrowserRouter>
-      <Header />
+      <Header favCount={favorites.length} totalProducts={totalCatalog} />
       <Routes>
         <Route path="/" element={<Shell />} />
         <Route path="/comparar" element={<ComparePage />} />

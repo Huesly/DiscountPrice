@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { falabellaAdapter } from './stores/falabella.js';
 import { ikeaAdapter } from './stores/ikea.js';
 import { exitoAdapter } from './stores/exito.js';
 import { alkostoAdapter } from './stores/alkosto.js';
@@ -47,6 +48,15 @@ const SEARCH_TERMS = [
   { term: 'leche entera', subcategory: 'Lácteos' },
   { term: 'cafe molido', subcategory: 'Café' },
   { term: 'atun', subcategory: 'Enlatados' },
+  { term: 'macbook', subcategory: 'Laptops y MacBooks' },
+  { term: 'macbook air', subcategory: 'Laptops y MacBooks' },
+  { term: 'macbook pro', subcategory: 'Laptops y MacBooks' },
+  { term: 'iphone', subcategory: 'Celulares iPhone' },
+  { term: 'iphone 15', subcategory: 'Celulares iPhone' },
+  { term: 'iphone 16', subcategory: 'Celulares iPhone' },
+  { term: 'ipad', subcategory: 'Tablets iPad' },
+  { term: 'ipad air', subcategory: 'Tablets iPad' },
+  { term: 'ipad pro', subcategory: 'Tablets iPad' },
 ];
 
 async function collectIkeaToday(): Promise<number> {
@@ -112,14 +122,35 @@ async function collectDiscountStoresToday(): Promise<number> {
   return total;
 }
 
-async function collectMultiStoresToday(): Promise<{ exito: number; alkosto: number; homecenter: number }> {
-  console.log('\n[3/5] Actualizando productos frescos de Éxito, Alkosto y Homecenter...');
+async function collectMultiStoresToday(): Promise<{ falabella: number; exito: number; alkosto: number; homecenter: number }> {
+  console.log('\n[3/5] Actualizando productos frescos de Falabella, Éxito, Alkosto y Homecenter...');
+  let falabellaTotal = 0;
   let exitoTotal = 0;
   let alkostoTotal = 0;
   let homecenterTotal = 0;
 
   for (const item of SEARCH_TERMS) {
-    // 1. Éxito
+    // 1. Falabella
+    try {
+      const fUrl = falabellaAdapter.searchUrl(item.term);
+      const fItems = await falabellaAdapter.fetchListing(fUrl);
+      if (fItems.length > 0) {
+        const count = await upsertProductsBatch(
+          fItems.map((p) => ({
+            ...p,
+            category: detectCategory(p.name, item.subcategory, item.term),
+            subcategory: item.subcategory,
+          })),
+          { store: 'falabella', city: 'Nacional' }
+        );
+        falabellaTotal += count;
+        console.log(`  [Falabella] "${item.term}": ${fItems.length} items (${count} guardados)`);
+      }
+    } catch (e) {
+      console.warn(`  [Falabella] Error en "${item.term}": ${(e as Error).message}`);
+    }
+
+    // 2. Éxito
     try {
       const exitoItems = await exitoAdapter.fetchListing('', { term: item.term, city: 'Cali' });
       if (exitoItems.length > 0) {
@@ -138,7 +169,7 @@ async function collectMultiStoresToday(): Promise<{ exito: number; alkosto: numb
       console.warn(`  [Éxito] Error en "${item.term}": ${(e as Error).message}`);
     }
 
-    // 2. Alkosto
+    // 3. Alkosto
     try {
       const alkostoItems = await alkostoAdapter.fetchListing('', { term: item.term });
       if (alkostoItems.length > 0) {
@@ -178,7 +209,7 @@ async function collectMultiStoresToday(): Promise<{ exito: number; alkosto: numb
     }
   }
 
-  return { exito: exitoTotal, alkosto: alkostoTotal, homecenter: homecenterTotal };
+  return { falabella: falabellaTotal, exito: exitoTotal, alkosto: alkostoTotal, homecenter: homecenterTotal };
 }
 
 async function main() {
@@ -206,6 +237,7 @@ async function main() {
 
   console.log('\n===============================================================');
   console.log('=== RESUMEN DE LA RECOLECCIÓN DE HOY ===');
+  console.log(`  - Falabella                : ${multiStoreCounts.falabella} registros actualizados`);
   console.log(`  - IKEA Cali                : ${ikeaCount} registros actualizados`);
   console.log(`  - Tiendas D1 & Ara         : ${discCount} registros actualizados`);
   console.log(`  - Éxito                    : ${multiStoreCounts.exito} registros actualizados`);

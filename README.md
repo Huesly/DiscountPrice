@@ -1,169 +1,290 @@
-# MCP Price — Falabella Price Tracker 🇨🇴
+# DealFinder Pro 🇨🇴 — Plataforma Nacional de Inteligencia de Compras y Comparación de Ofertas
 
-Sistema de monitoreo de precios y ofertas de **Falabella Colombia**. Un colector con Playwright barre categorías y búsquedas, guarda el historial de precios en MariaDB, un analizador detecta ofertas reales y una web + servidor MCP exponen los datos.
+Plataforma integral de **Shopping Intelligence & Editorial FinTech** diseñada para recopilar, normalizar, auditar y comparar en tiempo real productos y ofertas de los principales comercios nacionales de Colombia (**Falabella, Éxito, Alkosto, Homecenter, IKEA Cali, Tiendas D1 y Tiendas Ara**).
 
-## Stack
+A través de un motor híbrido de extracción multitienda (*Fast-First APIs + Playwright*), almacenamiento relacional en **MariaDB**, un comparador algorítmico (*Cross-Store Matcher*) y una interfaz moderna sin sobrecarga visual (*"anti-slop" design*, estilo *Stripe / Wirecutter / Klarna*), **DealFinder Pro** permite a los usuarios descubrir ahorros reales, auditar descuentos inflados y encontrar el mejor precio garantizado.
 
-- **Colector:** Playwright (Chromium headless)
-- **Base de datos:** MariaDB/MySQL (`mysql2`)
-- **Análisis de ofertas:** TypeScript puro
-- **API:** Fastify (+ CORS)
-- **Web:** React + Vite
-- **MCP:** `@modelcontextprotocol/sdk` (stdio)
+---
 
-## Requisitos
+## 🚀 Arquitectura y Tecnologías
 
-- Node.js 20+
-- MariaDB (o MySQL) corriendo en `127.0.0.1:3306`
-  - **Windows:** se recomienda XAMPP (`C:\xampp\xampp-control.exe` → Start MySQL)
-  - Sin contraseña por defecto (`DB_PASSWORD=` vacío en `.env`)
+```mermaid
+flowchart TD
+    subgraph Comercios["Comercios Nacionales Monitoreados"]
+        C1["Falabella (Next.js / API)"]
+        C2["Éxito (VTEX Search API)"]
+        C3["Alkosto (Algolia PRD)"]
+        C4["Homecenter (API / DOM)"]
+        C5["IKEA Cali (Catálogo)"]
+        C6["D1 & Ara (Despensa)"]
+    end
 
-## Setup
+    subgraph Scrapers["Motor de Extracción Híbrido (TypeScript)"]
+        S1["collector.ts (Scraper Multitienda)"]
+        S2["collect-today.ts (Sincronización Diaria)"]
+        S3["scheduler.ts (Cron Daemon cada 6h)"]
+        S4["matcher/normalize.ts (Emparejador)"]
+    end
+
+    subgraph Data["Persistencia Relacional (MariaDB)"]
+        DB[("falabella_prices\n45.000+ Productos\n86.000+ Historial Precios")]
+    end
+
+    subgraph Backend["Capa de Servicios"]
+        API["Fastify REST API (Puerto 9151)"]
+        MCP["MCP Server (stdio / Model Context Protocol)"]
+    end
+
+    subgraph Frontend["Interfaz de Usuario (React + Vite)"]
+        UI["DealFinder Pro Web (Puerto 9150)\nPlus Jakarta Sans + JetBrains Mono (tnum)\nTokens Semánticos Slate / Emerald / Blue"]
+        Tunnel["Túnel Ngrok (Acceso Público Seguro)"]
+    end
+
+    Comercios --> Scrapers
+    Scrapers --> DB
+    DB --> Backend
+    Backend --> Frontend
+```
+
+### Stack Técnico
+
+* **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Google Fonts (`Plus Jakarta Sans` para UI y `JetBrains Mono` con números tabulares `tabular-nums` para precios alineados), sistema de iconografía SVG pura inline (`aria-hidden="true"`).
+* **Backend:** Fastify 5 (+ `@fastify/cors`), TypeScript nativo (`tsx`).
+* **Base de Datos:** MariaDB / MySQL 10.4+ (`mysql2`), índices optimizados, particionamiento lógico, hashing de estado de precios (`price_hash`) y transacciones seguras con reintento automático ante deadlocks de InnoDB.
+* **Extracción y Scrapers:** Fast-First Hybrid:
+  * Extracción directa de APIs (VTEX para Éxito, Algolia para Alkosto, JSON `__NEXT_DATA__` para Falabella, catálogo IKEA).
+  * Fallback automático a **Playwright** (Chromium headless) con bloqueo de recursos estáticos innecesarios para máxima velocidad.
+* **Inteligencia de Ofertas:** Algoritmo de detección de ofertas reales (`analyzer.ts`), comparación cruzada frente al precio tachado y frente a la media móvil de 30 días (`avg30`), cálculo de puntaje (`deal_score`) y emparejador multitienda (`match.ts`).
+* **Integración IA:** Servidor **MCP (Model Context Protocol)** bajo `@modelcontextprotocol/sdk` para conectar asistentes y agentes inteligentes directamente con el inventario de ofertas.
+* **Túnel y Acceso Remoto:** Configuración persistente de **ngrok** para compartir el entorno local mediante URLs públicas SSL.
+
+---
+
+## 🛍️ Cobertura de Comercios (7 Tiendas Nacionales)
+
+| Comercio | Modalidad de Extracción | Cobertura de Catálogo |
+|---|---|---|
+| **Falabella** | Next.js Data JSON + Playwright fallback | Electrohogar, Tecnología, Muebles, Moda |
+| **Éxito** | VTEX Catalog API (con segmentación regional Cali/Nal) | Supermercado, Tecnología, Celulares, Hogar |
+| **Alkosto** | Algolia Search Direct Engine | Laptops, Smartphones, Televisores, Electrodomésticos |
+| **Homecenter** | API JSON + Fallback DOM | Muebles, Iluminación, Herramientas, Tecnología |
+| **IKEA Cali** | Catalog Search API | Muebles, Lámparas, Decoración, Dormitorio |
+| **Tiendas D1** | Catálogo estructurado de marcas propias | Abarrotes, Despensa básica, Aseo |
+| **Tiendas Ara** | Catálogo estructurado de ahorro diario | Alimentos, Lácteos, Granos, Bebidas |
+
+---
+
+## ✨ Características Principales de la Plataforma
+
+1. **Diseño Editorial FinTech ("Anti-Slop"):**
+   * Paleta sobria basada en tokens semánticos: Fondos Slate 50 (`#F8FAFC`), tarjetas blanco puro elevadas, acentos de ahorro inteligente en Emerald 600 (`#059669`) y acciones tecnológicas en Blue 600 (`#2563EB`).
+   * Cero elementos de "cuponera barata": sin tipografías llamativas, sin banners parpadeantes, sin popups intrusivos.
+2. **Números Tabulares (`tabular-nums`):**
+   * Configuración CSS `font-feature-settings: "tnum"` en `JetBrains Mono` que asegura que los dígitos de precios de distintas tiendas queden alineados verticalmente sin saltos horizontales.
+3. **Filtros Dinámicos e Inmediatos:**
+   * **Chips Activos:** Barra superior que muestra los filtros seleccionados (`[Tecnología ✕]`, `[Descuento > 30% ✕]`, `[Falabella ✕]`) con botón de limpieza y recálculo instantáneo.
+   * **Barra de Presets Rápidos (1 Clic):** Accesos directos a *«MacBook»*, *«iPhone»*, *«iPad»*, *«Rebajas > 40%»*, *«Menos de $100.000»*, *«Verificados Hoy»* y *«Eficiencia RETIQ A»*.
+   * **Sidebar Modular:** Conteo dinámico de ofertas disponibles por tienda en tiempo real, selector de segmentos de descuento (`15%+`, `25%+`, `40%+`, `50%+`) y rangos numéricos de precio en COP.
+   * **Drawer Móvil Táctil:** Bottom Sheet deslizable y accesible para pantallas de 360px a 768px.
+4. **Tarjetas de Producto Estandarizadas:**
+   * Proporción cuadrada limpia (`aspect-square`), badge del comercio, indicador de verificación (*"Verificado hoy"*), bloque de precio actual + original tachado y cálculo explícito del ahorro neto (*"Ahorras $X COP"*).
+5. **Cero Layout Shift (CLS = 0):**
+   * Sistema de esqueleto de carga animado (*ProductSkeletonGrid*) que replica milimétricamente la geometría de las tarjetas finales.
+6. **Programación Automática (Daemon cada 6 Horas):**
+   * Tarea cron continua que barre los catálogos periódicamente, actualiza la base de datos y recalcula el historial sin intervención humana.
+
+---
+
+## 📦 Instalación y Puesta en Marcha
+
+### Requisitos Previos
+
+* **Node.js** v20 o superior
+* **MariaDB** o **MySQL** corriendo en `127.0.0.1:3306` (por ejemplo mediante XAMPP)
+* **Git** instalado en el sistema
+
+### 1. Clonar el Repositorio
 
 ```bash
-npm install                          # dependencias raíz (collector, API, MCP)
-cd web && npm install                # dependencias del frontend
+git clone https://github.com/Huesly/DiscountPrice.git
+cd DiscountPrice
+```
+
+### 2. Instalar Dependencias
+
+```bash
+# Dependencias principales (backend, colector, matcher, mcp)
+npm install
+
+# Dependencias del frontend web
+cd web
+npm install
 cd ..
 ```
 
-Crear el archivo `.env` (copia de `.env.example`):
+### 3. Variables de Entorno (`.env`)
+
+Crea tu archivo `.env` a partir de la plantilla:
 
 ```bash
 cp .env.example .env
 ```
 
-Ajustar en `.env` si es necesario:
-- `DB_PASSWORD=` (vacío si XAMPP sin password)
-- `API_PORT=3100` (evitar `3000` si está ocupado por sistema)
+Asegúrate de que los valores coincidan con tu entorno local:
 
-Crear la base de datos y las tablas (se ejecuta `src/db/schema.sql`, crea la BD automáticamente si no existe):
+```env
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=falabella_prices
+
+API_HOST=127.0.0.1
+API_PORT=9151
+
+MAX_PAGES=10
+PAGE_DELAY_MS=600
+
+SCHEDULE_CRON=0 */6 * * *
+RUN_ON_START=true
+```
+
+### 4. Inicializar la Base de Datos
+
+Ejecuta el script de inicialización para crear la base de datos `falabella_prices` y todas sus tablas (`products`, `price_history`, `deals`, `product_groups`, `group_members`):
 
 ```bash
 npm run init-db
 ```
 
-## Comandos
+---
 
-### Colector (principal)
+## 🛠️ Comandos Disponibles
 
-| Comando | Qué hace |
+### Servidores y Aplicación
+
+| Comando | Descripción |
 |---|---|
-| `npm run collector` | Colecta categorías + **todos** los términos de `terms.txt` |
-| `npm run collector:1` | Colecta **grupo 1** de `terms.txt` (consola 1) |
-| `npm run collector:2` | Colecta **grupo 2** de `terms.txt` (consola 2) |
-| `npm run analyze` | Detecta ofertas activas y las guarda en `deals` |
-| `npm run dedupe` | Elimina capturas de precio duplicadas (mismo producto, minuto y precio) |
-| `npm run api` | API REST en `http://127.0.0.1:3100` (endpoints en `/api/*`) |
-| `npm run mcp` | Servidor MCP por stdio |
-| `npm run schedule` | Cron que corre collector + analyzer cada 6 h (configurable) |
-| `npm run discover` | Probes de descubrimiento del HTML de Falabella |
+| `npm run api` | Inicia el servidor backend Fastify en `http://127.0.0.1:9151` |
+| `npm --prefix web run dev` | Inicia la interfaz web React + Vite en `http://localhost:9150` |
+| `npm --prefix web run build` | Compila el bundle de producción del frontend web |
+| `npm run schedule` | Inicia el daemon programador automático (ejecución cada 6 horas) |
+| `npm run mcp` | Inicia el servidor Model Context Protocol (MCP) por stdio |
 
-**Ejecución paralela recomendada:** abrir **dos** consolas de PowerShell:
+### Extracción y Análisis de Datos
 
-```powershell
-# Consola 1
-npm run collector:1
+| Comando | Descripción |
+|---|---|
+| `npx tsx src/collect-today.ts` | Sincronización completa de precios del día (todas las tiendas y matcher) |
+| `npm run collector` | Barre Falabella y términos de búsqueda definidos en `terms.txt` |
+| `npm run collector:1` | Barre únicamente el Grupo 1 de términos en paralelo |
+| `npm run collector:2` | Barre únicamente el Grupo 2 de términos en paralelo |
+| `npm run collector:exito:cali` | Barre el catálogo de Éxito para la región de Cali |
+| `npm run collector:homecenter` | Barre el catálogo de Homecenter |
+| `npm run collector:ikea` | Barre el catálogo de muebles e iluminación de IKEA Cali |
+| `npm run analyze` | Audita las variaciones de precios y genera las ofertas en la tabla `deals` |
+| `npm run match` | Ejecuta el algoritmo de emparejamiento de productos idénticos entre tiendas |
+| `npm run dedupe` | Limpia registros redundantes en el historial de precios |
 
-# Consola 2
-npm run collector:2
-```
+---
 
-El colector procesa primero los **términos de búsqueda** y luego la **categoría**. Cada término se busca en Falabella (`search/?Ntt=<término>`) con paginación automática. Si una consola pega bloqueo o deadlock, reintenta automáticamente (3 intentos con backoff).
+## 🌐 Despliegue con Túnel Público (Ngrok)
 
-### Web (frontend)
+Para compartir la plataforma local hacia el exterior (móviles, clientes o evaluadores):
 
-```bash
-cd web
-npm run dev
-```
+1. Configura tu authtoken en `ngrok-secondary.yml`:
+   ```yaml
+   version: "2"
+   authtoken: TU_TOKEN_DE_NGROK
+   web_addr: 127.0.0.1:4044
+   ```
+2. Inicia el túnel apuntando al puerto del frontend:
+   ```powershell
+   ngrok http 127.0.0.1:9150 --config="ngrok-secondary.yml"
+   ```
+3. Accede mediante la URL asignada (ejemplo: `https://effort-salute-vice.ngrok-free.dev`).
 
-Abre `http://localhost:5173`. El dev server de Vite proxya `/api` hacia `127.0.0.1:3100`.
+---
 
-## Configuración por variables de entorno
+## 🔑 Configuración del Token de GitHub (Para Subir Cambios)
 
-| Variable | Default | Descripción |
-|---|---|---|
-| `DB_HOST` | `127.0.0.1` | Host de MariaDB |
-| `DB_PORT` | `3306` | Puerto |
-| `DB_USER` | `root` | Usuario |
-| `DB_PASSWORD` | *(vacía)* | Contraseña |
-| `DB_NAME` | `falabella_prices` | Nombre de BD |
-| `MAX_PAGES` | `10` | Máximo de páginas por listado (una página sin SKUs nuevos corta antes) |
-| `PAGE_DELAY_MS` | `1200` | Pausa base entre páginas (más jitter aleatorio 0–1400 ms) |
-| `COLLECT_TERMS` | *(vacío)* | Override temporal: `COLLECT_TERMS=ollas,platos npm run collector` (ignora `terms.txt`) |
-| `API_HOST` | `127.0.0.1` | IP donde escucha la API |
-| `API_PORT` | `3100` | Puerto de la API (evitar `3000` en Windows) |
-| `SCHEDULE_CRON` | `0 */6 * * *` | Cron del scheduler |
-| `RUN_ON_START` | `true` | Scheduler corre un ciclo al arrancar |
+Si utilizas un **Fine-grained Personal Access Token** de GitHub (`github_pat_...`), asegúrate de otorgar los siguientes permisos en la configuración de GitHub para evitar el error *"No repository permissions added yet"*:
 
-## Términos de búsqueda (`terms.txt`)
+1. En GitHub ve a **Settings** > **Developer Settings** > **Personal Access Tokens** > **Fine-grained tokens** > **Generate new token**.
+2. En **Repository access** elige **«Only select repositories»** y selecciona `DiscountPrice`.
+3. En **Permissions > Repository permissions**:
+   * **`Contents`**: Selecciona **Read and write** *(Obligatorio para permitir `git push`)*.
+   * **`Pages`** *(si aplica)*: Selecciona **Read and write**.
+   * **`Workflows`** *(si aplica)*: Selecciona **Read and write**.
+4. Vincula el token a tu repositorio local con:
+   ```powershell
+   git remote set-url origin https://TU_TOKEN@github.com/Huesly/DiscountPrice.git
+   ```
+5. Sube tus cambios:
+   ```powershell
+   git push -u origin main
+   ```
 
-Los términos viven en `terms.txt` (raíz del proyecto), **uno por línea**. Comentarios con `#`.
+---
 
-Separar en grupos con `# grupo N` para correr en paralelo:
-
-```text
-# grupo 1
-aspiradora
-licuadora
-microondas
-...
-
-# grupo 2
-estante
-sofa
-cama
-...
-maquina afeitar
-```
-
-- `npm run collector:1` → grupo 1
-- `npm run collector:2` → grupo 2
-
-> **Prioridad:** `COLLECT_TERMS` env var > `terms.txt`. Si `COLLECT_TERMS` está seteada, ignora el archivo.
-
-Para agregar un término: editar `terms.txt`, guardar, y correr `collector:1` o `collector:2` según el grupo.
-
-## Categorías
-
-La categoría scrapeada está en `src/config.ts` → `CATEGORIES` (actualmente `cat50623` Electrohogar).
-
-## Cómo funciona el colector
-
-1. **Extracción vía `__NEXT_DATA__`** (JSON incrustado en la página) → más rápido y 100% imágenes.
-2. Si falla, **fallback DOM** con un scroll rápido.
-3. **Fingerprint de precio** (`price|original_price|stock`) en `products.price_hash`:
-   - Si el fingerprint **cambió** → se inserta nueva fila en `price_history`.
-   - Si **no cambió** → solo refresca metadata (nombre, imagen, URL, seller).
-4. Los SKU son únicos (`ON DUPLICATE KEY UPDATE`).
-5. Transacción por página con **READ COMMITTED** + retry automático ante deadlocks de InnoDB.
-
-## Estructura
+## 📂 Estructura del Proyecto
 
 ```
-src/
-  collector.ts      # Colector Playwright (términos + categorías)
-  analyzer.ts       # Detección de ofertas y deal_score
-  dedupe.ts         # Limpieza de capturas de precio duplicadas
-  config.ts         # Categorías, parser de terms.txt y constantes
-  scheduler.ts      # Cron collector + analyzer
-  parse.ts          # Parseo de precios COP y vendedores
-  api/server.ts     # API Fastify
-  mcp/server.ts     # Servidor MCP (stdio)
-  db/
-    schema.sql      # DDL (BD + tablas)
-    init.ts         # Aplica schema
-    repo.ts         # Capa de acceso a datos (batch + cache)
-terms.txt           # Términos de búsqueda (1 por línea, grupos con # grupo N)
-web/                # Frontend React + Vite
-docs/
-  selectors.md      # Notas de selectores del HTML de Falabella
-  ROADMAP.md        # Mejoras propuestas
+DiscountPrice/
+├── src/
+│   ├── api/
+│   │   └── server.ts          # API REST en Fastify (rutas /api/products, /api/stats, /api/collect)
+│   ├── db/
+│   │   ├── db.ts              # Pool de conexiones mysql2
+│   │   ├── init.ts            # Inicializador de DDL
+│   │   ├── repo.ts            # Repositorio y consultas SQL optimizadas
+│   │   └── schema.sql         # Esquema de tablas relacionales
+│   ├── discovery/             # Probes y exploradores de endpoints
+│   ├── matcher/
+│   │   └── normalize.ts       # Algoritmos de similitud textual y limpieza de títulos
+│   ├── mcp/
+│   │   └── server.ts          # Servidor MCP stdio para agentes IA
+│   ├── stores/                # Adaptadores por tienda
+│   │   ├── alkosto.ts         # Adaptador Algolia Engine
+│   │   ├── ara.ts             # Adaptador Tiendas Ara
+│   │   ├── d1.ts              # Adaptador Tiendas D1
+│   │   ├── exito.ts           # Adaptador VTEX Search API
+│   │   ├── falabella.ts       # Adaptador Next.js / Playwright
+│   │   ├── homecenter.ts      # Adaptador Homecenter API
+│   │   ├── ikea.ts            # Adaptador IKEA Cali
+│   │   └── types.ts           # Tipos de adaptadores
+│   ├── analyzer.ts            # Detección de gangas reales
+│   ├── collect-today.ts       # Pipeline de extracción diaria multitienda
+│   ├── collector.ts           # Motor principal de scraping y clasificación por categoría
+│   ├── config.ts              # Configuración y parser de términos
+│   ├── dedupe.ts              # Limpieza de duplicados
+│   ├── match.ts               # Ejecutor del matcher multitienda
+│   └── scheduler.ts           # Cron daemon cada 6 horas
+├── web/                       # Aplicación Frontend React + Vite
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ActiveFilterChips.tsx   # Chips activos con eliminación y live counter
+│   │   │   ├── DetailSheet.tsx         # Modal con histórico de precios
+│   │   │   ├── Header.tsx              # Encabezado editorial con trust badge
+│   │   │   ├── Icons.tsx               # Iconografía inline SVG pura
+│   │   │   ├── MobileFilterDrawer.tsx  # Bottom sheet deslizable móvil
+│   │   │   ├── Pagination.tsx          # Paginación con números tabulares
+│   │   │   ├── ProductCard.tsx         # Tarjeta de producto estandarizada
+│   │   │   ├── ProductGrid.tsx         # Grilla responsiva y empty state
+│   │   │   ├── ProductSkeletonGrid.tsx # Skeletons animados anti-layout-shift
+│   │   │   ├── QuickPresetsBar.tsx     # Presets de 1 clic (MacBook, iPhone, iPad, Rebajas)
+│   │   │   └── SidebarFilters.tsx      # Barra lateral modular con live store counts
+│   │   ├── hooks/                      # Custom hooks (filtros URL, favoritos)
+│   │   ├── App.tsx                     # Orquestador del catálogo y vistas
+│   │   └── index.css                   # Tokens semánticos CSS y sistema visual
+│   └── index.html             # Google Fonts (Plus Jakarta Sans + JetBrains Mono)
+├── terms.txt                  # Lista de términos clasificados en grupos
+├── package.json               # Scripts y dependencias del backend
+└── README.md                  # Documentación oficial del proyecto
 ```
 
-## Notas
+---
 
-- El colector tiene delay + jitter entre páginas para evitar bloqueos de Falabella.
-- Los datos quedan **solo en tu MariaDB local**; no se sube nada a terceros.
-- Las imágenes de productos son URL del CDN de Falabella (hotlink), no se descargan localmente.
-- Si MySQL/XAMPP no está corriendo, `npm run collector` falla con `ECONNREFUSED 127.0.0.1:3306`.
+## 📄 Licencia
+
+Este proyecto es privado y para fines de monitoreo e inteligencia de precios en Colombia.

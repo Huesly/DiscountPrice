@@ -3,6 +3,7 @@ export interface Stats {
   price_records: number;
   active_deals: number;
   categories: number;
+  store_counts?: Record<string, number>;
 }
 
 export interface ProductRow {

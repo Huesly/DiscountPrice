@@ -535,21 +535,31 @@ export interface GlobalStats {
   price_records: number;
   active_deals: number;
   categories: number;
+  store_counts?: Record<string, number>;
 }
 
 export async function getGlobalStats(): Promise<GlobalStats> {
-  const [rows] = await (await getPool()).query<RowDataPacket[]>(
+  const pool = await getPool();
+  const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT
        (SELECT COUNT(*) FROM products WHERE active = 1) AS products,
        (SELECT COUNT(*) FROM price_history) AS price_records,
        (SELECT COUNT(*) FROM deals WHERE status = 'active') AS active_deals,
        (SELECT COUNT(DISTINCT category) FROM products WHERE active = 1) AS categories`
   );
+  const [storeRows] = await pool.query<RowDataPacket[]>(
+    `SELECT store, COUNT(*) as count FROM products WHERE active = 1 GROUP BY store`
+  );
+  const storeCounts: Record<string, number> = {};
+  for (const r of storeRows) {
+    storeCounts[r.store] = Number(r.count);
+  }
   return {
     products: Number(rows[0].products),
     price_records: Number(rows[0].price_records),
     active_deals: Number(rows[0].active_deals),
     categories: Number(rows[0].categories),
+    store_counts: storeCounts,
   };
 }
 

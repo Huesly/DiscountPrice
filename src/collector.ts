@@ -40,7 +40,7 @@ export function detectCategory(name: string, subcategory?: string | null, term?:
 
   // 3. Tecnología y Celulares
   if (
-    /\b(celular|celulares|smartphone|samsung|iphone|apple|xiaomi|motorola|huawei|oppo|realme|infinix|computador|laptop|portatil|portátil|tablet|tv|televisor|pantalla|monitor|audifonos|audífonos|reloj|smartwatch|ups|regulador|bateria|teclado|mouse|impresora)\b/i.test(text)
+    /\b(celular|celulares|smartphone|samsung|iphone|apple|macbook|ipad|imac|airpods|xiaomi|motorola|huawei|oppo|realme|infinix|computador|laptop|portatil|portátil|tablet|tv|televisor|pantalla|monitor|audifonos|audífonos|reloj|smartwatch|ups|regulador|bateria|teclado|mouse|impresora)\b/i.test(text)
   ) {
     return 'Tecnología y Celulares';
   }

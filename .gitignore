@@ -5,4 +5,7 @@ tmp/
 ngrok*.yml
 scratch/
 dist/
+web/dist/
+.DS_Store
+Thumbs.db
 

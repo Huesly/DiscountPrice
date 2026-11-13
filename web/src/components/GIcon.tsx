@@ -1,6 +1,8 @@
+import Icon, { type IconName } from './Icons';
+
 interface GIconProps {
-  name: string;
-  size?: number;
+  name: IconName | string;
+  size?: number | string;
   className?: string;
   fill?: boolean;
 }
@@ -11,24 +13,12 @@ export default function GIcon({
   className = '',
   fill = false,
 }: GIconProps) {
-  return (
-    <span
-      className={`material-symbols-outlined g-icon ${className}`}
-      style={{
-        fontSize: `${size}px`,
-        width: `${size}px`,
-        height: `${size}px`,
-        fontVariationSettings: fill ? "'FILL' 1, 'wght' 500" : "'FILL' 0, 'wght' 450",
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        lineHeight: 1,
-        verticalAlign: 'middle',
-        userSelect: 'none',
-      }}
-      aria-hidden="true"
-    >
-      {name}
-    </span>
-  );
+  // Map Material Symbol names to Icon names
+  let iconName: string = name;
+  if (name === 'favorite') iconName = fill ? 'heart_filled' : 'heart';
+  if (name === 'store') iconName = 'storefront';
+  if (name === 'tune') iconName = 'tune';
+  if (name === 'filter_list') iconName = 'tune';
+
+  return <Icon name={iconName} size={size} className={className} />;
 }
