@@ -206,27 +206,6 @@ Para compartir la plataforma local hacia el exterior (móviles, clientes o evalu
 
 ---
 
-## 🔑 Configuración del Token de GitHub (Para Subir Cambios)
-
-Si utilizas un **Fine-grained Personal Access Token** de GitHub (`github_pat_...`), asegúrate de otorgar los siguientes permisos en la configuración de GitHub para evitar el error *"No repository permissions added yet"*:
-
-1. En GitHub ve a **Settings** > **Developer Settings** > **Personal Access Tokens** > **Fine-grained tokens** > **Generate new token**.
-2. En **Repository access** elige **«Only select repositories»** y selecciona `DiscountPrice`.
-3. En **Permissions > Repository permissions**:
-   * **`Contents`**: Selecciona **Read and write** *(Obligatorio para permitir `git push`)*.
-   * **`Pages`** *(si aplica)*: Selecciona **Read and write**.
-   * **`Workflows`** *(si aplica)*: Selecciona **Read and write**.
-4. Vincula el token a tu repositorio local con:
-   ```powershell
-   git remote set-url origin https://TU_TOKEN@github.com/Huesly/DiscountPrice.git
-   ```
-5. Sube tus cambios:
-   ```powershell
-   git push -u origin main
-   ```
-
----
-
 ## 📂 Estructura del Proyecto
 
 ```
